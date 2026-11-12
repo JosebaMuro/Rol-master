@@ -71,7 +71,8 @@ jobs:
       - name: Añadir CUDA (opcional)
         if: ${{ github.event.inputs.cuda == 'true' }}
         shell: pwsh
-        run: (Get-Content pubspec.yaml) -replace 'backends: \[cpu, vulkan\] # windows', 'backends: [cpu, vulkan, cuda]' | Set-Content pubspec.yaml
+        run: |
+          (Get-Content pubspec.yaml) -replace 'backends: \[cpu, vulkan\] # windows', 'backends: [cpu, vulkan, cuda]' | Set-Content pubspec.yaml
       - run: flutter pub get
       - name: Compilar EXE
         run: flutter build windows --release
