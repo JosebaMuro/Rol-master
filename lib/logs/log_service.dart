@@ -10,7 +10,8 @@ import '../core/models.dart';
 ///   `Documentos/DirectorDeRol/logs/{Jugador}/{Tema}/{Campaña}/sesion-N.md`
 /// para poder leerlas fuera de la app.
 class LogService {
-  LogService(this.db, this.logsDir);
+  LogService(this.db, this.logsDir, {this.exportsDir});
+  final String? exportsDir;
   final AppDatabase db;
   final String logsDir;
 
@@ -75,7 +76,7 @@ class LogService {
         ..writeln(sessionMarkdown(c, s))
         ..writeln('\n---\n');
     }
-    final dir = Directory(p.join(logsDir, '_exportaciones'));
+    final dir = Directory(exportsDir ?? p.join(logsDir, '_exportaciones'));
     await dir.create(recursive: true);
     final f = File(p.join(dir.path, '${safe(c.title)}.md'));
     await f.writeAsString(b.toString());

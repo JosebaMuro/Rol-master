@@ -4,19 +4,25 @@ import 'dart:typed_data';
 import 'package:sqlite3/sqlite3.dart';
 
 import 'models.dart';
+import 'portable.dart';
 
 /// Acceso a la base de datos local (SQLite). Todo vive en un único fichero
 /// dentro de la carpeta de datos de la app, así las partidas persisten entre
 /// sesiones y se pueden continuar donde se dejaron.
 class AppDatabase {
-  AppDatabase(this.db) {
+  AppDatabase(this.db, {this.root}) {
     _migrate();
   }
 
-  factory AppDatabase.open(String path) => AppDatabase(sqlite3.open(path));
-  factory AppDatabase.memory() => AppDatabase(sqlite3.openInMemory());
+  factory AppDatabase.open(String path, {DataRoot? root}) => AppDatabase(sqlite3.open(path), root: root);
+  factory AppDatabase.memory({DataRoot? root}) => AppDatabase(sqlite3.openInMemory(), root: root);
 
   final Database db;
+
+  /// Carpeta de datos: las rutas de ficheros se guardan relativas a ella.
+  final DataRoot? root;
+  String _store(String path) => root?.toStored(path) ?? path;
+  String _resolve(String path) => root?.resolve(path) ?? path;
 
   static const int schemaVersion = 1;
 
@@ -517,8 +523,8 @@ CREATE TABLE IF NOT EXISTS maps (
   }
 
   void updateTrack(Track t) => db.execute(
-        'UPDATE tracks SET title = ?, situation_id = ?, volume = ? WHERE id = ?',
-        [t.title, t.situationId, t.volume, t.id],
+        'UPDATE tracks SET path = ?, title = ?, situation_id = ?, volume = ? WHERE id = ?',
+        [t.path, t.title, t.situationId, t.volume, t.id],
       );
 
   void deleteTrack(int id) => db.execute('DELETE FROM tracks WHERE id = ?', [id]);
@@ -527,7 +533,7 @@ CREATE TABLE IF NOT EXISTS maps (
   MapRecord addMap(MapRecord m) {
     db.execute(
       'INSERT INTO maps (campaign_id, title, kind, seed, image_path, key_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [m.campaignId, m.title, m.kind, m.seed, m.imagePath, m.keyJson, m.createdAt.toIso8601String()],
+      [m.campaignId, m.title, m.kind, m.seed, _store(m.imagePath), m.keyJson, m.createdAt.toIso8601String()],
     );
     m.id = db.lastInsertRowId;
     return m;
@@ -539,6 +545,7 @@ CREATE TABLE IF NOT EXISTS maps (
           ? db.select('SELECT * FROM maps ORDER BY id DESC')
           : db.select('SELECT * FROM maps WHERE campaign_id = ? ORDER BY id DESC', [campaignId]))
       .map(MapRecord.fromRow)
+      .map((m) => m..imagePath = _resolve(m.imagePath))
       .toList();
 
   void deleteMap(int id) => db.execute('DELETE FROM maps WHERE id = ?', [id]);

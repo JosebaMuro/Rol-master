@@ -46,7 +46,6 @@ dependencies:
   path: ^1.9.1
   archive: ^4.6.0
   http: ^1.6.0
-  shared_preferences: ^2.5.6
 
 # Motores de inferencia nativos que se empaquetan (los descarga el build hook
 # de llamadart en la primera compilación):

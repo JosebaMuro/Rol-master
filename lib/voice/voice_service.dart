@@ -12,6 +12,7 @@ import '../core/models.dart';
 import '../core/settings.dart';
 import 'neural_tts.dart';
 import 'voice_packs.dart';
+import 'windows_tts.dart';
 
 /// Línea a locutar con la voz que le corresponde.
 class SpeechLine {
@@ -31,7 +32,10 @@ class VoiceService extends ChangeNotifier {
   final VoicePackManager packs;
   final String tempDir;
 
-  final FlutterTts? _tts = (Platform.isAndroid || Platform.isWindows || Platform.isIOS || Platform.isMacOS) ? FlutterTts() : null;
+  // En Windows el plugin flutter_tts cierra la app al parar la voz, así que
+  // allí se usa WindowsTts (sintetiza a WAV y lo reproduce la app).
+  final FlutterTts? _tts = (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) ? FlutterTts() : null;
+  late final WindowsTts? _win = Platform.isWindows ? WindowsTts(scriptDir: tempDir) : null;
   final AudioPlayer _player = AudioPlayer(playerId: 'voice');
   final NeuralTts _neural = NeuralTts();
 
@@ -44,9 +48,17 @@ class VoiceService extends ChangeNotifier {
   /// Para bajar el volumen de la música mientras se habla.
   void Function(bool speaking)? onSpeakingChanged;
 
-  bool get systemAvailable => _tts != null;
+  bool get systemAvailable => _tts != null || _win != null;
 
   Future<void> init() async {
+    final win = _win;
+    if (win != null) {
+      final all = await win.voices();
+      final es = all.where((v) => (v['locale'] ?? '').toLowerCase().startsWith('es')).toList();
+      systemVoices = es.isNotEmpty ? es : all;
+      notifyListeners();
+      return;
+    }
     final tts = _tts;
     if (tts == null) return;
     try {
@@ -188,6 +200,30 @@ class VoiceService extends ChangeNotifier {
   }
 
   Future<void> _speakSystem(String text, VoiceProfile v) async {
+    final gen = _generation;
+    final win = _win;
+    if (win != null) {
+      final out = p.join(tempDir, 'tts_${DateTime.now().microsecondsSinceEpoch}.wav');
+      try {
+        Directory(tempDir).createSync(recursive: true);
+        await win.synthesize(
+          text: text,
+          outPath: out,
+          voice: v.systemVoice,
+          locale: v.systemLocale.isEmpty ? 'es-ES' : v.systemLocale,
+          pitch: v.pitch,
+          rate: v.rate * 2, // 0,5 en el perfil = velocidad normal
+        );
+        await _playFile(out, gen);
+      } catch (e) {
+        debugPrint('Voz del sistema falló: $e');
+      } finally {
+        try {
+          File(out).deleteSync();
+        } catch (_) {}
+      }
+      return;
+    }
     final tts = _tts;
     if (tts == null) return;
     if (v.systemVoice.isNotEmpty) {
@@ -201,27 +237,58 @@ class VoiceService extends ChangeNotifier {
   }
 
   Future<void> _speakNeural(String text, VoiceProfile v) async {
+    final gen = _generation;
     final pack = packs.byId(v.neuralPack)!;
+    // Si falta algún fichero, sherpa-onnx abortaría el proceso: se comprueba antes.
+    for (final k in const ['model', 'tokens']) {
+      final path = pack.files[k] ?? '';
+      if (path.isEmpty || !File(path).existsSync()) throw Exception('Falta $k en la voz ${pack.id}');
+    }
+    if (pack.kind == 'kokoro' && !File(pack.files['voices'] ?? '').existsSync()) {
+      throw Exception('Falta voices en la voz ${pack.id}');
+    }
+    for (final k in const ['dataDir', 'dictDir']) {
+      final path = pack.files[k] ?? '';
+      if (path.isNotEmpty && !Directory(path).existsSync()) throw Exception('Falta $k en la voz ${pack.id}');
+    }
+    Directory(tempDir).createSync(recursive: true);
     final out = p.join(tempDir, 'tts_${DateTime.now().microsecondsSinceEpoch}.wav');
-    final n = await _neural.synthesize(pack: pack, text: text, speakerId: v.speakerId, speed: v.speed, outPath: out);
-    packs.setSpeakers(pack.id, n);
+    try {
+      final n = await _neural.synthesize(pack: pack, text: text, speakerId: v.speakerId, speed: v.speed, outPath: out);
+      packs.setSpeakers(pack.id, n);
+      await _playFile(out, gen);
+    } finally {
+      try {
+        File(out).deleteSync();
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _playFile(String out, int gen) async {
+    if (gen != _generation) return; // se paró mientras se generaba
+    if (!File(out).existsSync()) throw Exception('No se generó el audio');
     final done = Completer<void>();
     _playing = done;
     final sub = _player.onPlayerComplete.listen((_) {
       if (!done.isCompleted) done.complete();
     });
-    await _player.play(DeviceFileSource(out));
-    await done.future.timeout(const Duration(minutes: 3), onTimeout: () {});
-    await sub.cancel();
     try {
-      File(out).deleteSync();
-    } catch (_) {}
+      await _player.play(DeviceFileSource(out));
+      await done.future.timeout(const Duration(minutes: 3), onTimeout: () {});
+    } finally {
+      await sub.cancel();
+      await _player.release();
+    }
   }
 
   Future<void> stop() async {
     _generation++;
-    await _tts?.stop();
-    await _player.stop();
+    try {
+      await _tts?.stop();
+    } catch (_) {}
+    try {
+      await _player.stop();
+    } catch (_) {}
     if (_playing != null && !_playing!.isCompleted) _playing!.complete();
     currentSpeaker = null;
     _setSpeaking(false);
@@ -237,6 +304,7 @@ class VoiceService extends ChangeNotifier {
   @override
   void dispose() {
     _neural.dispose();
+    _win?.dispose();
     _player.dispose();
     super.dispose();
   }

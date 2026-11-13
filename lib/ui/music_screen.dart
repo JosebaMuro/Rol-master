@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:path/path.dart' as p;
@@ -96,18 +98,16 @@ class _MusicScreenState extends State<MusicScreen> {
                         icon: const Icon(Icons.label),
                         onSelected: (v) {
                           if (v == -2) {
-                            s.db.deleteTrack(t.id!);
+                            music.removeTrack(t);
                           } else {
-                            t.situationId = v == -1 ? null : v;
-                            s.db.updateTrack(t);
+                            music.assign(t, v == -1 ? null : v);
                           }
-                          music.changed();
                         },
                         itemBuilder: (_) => [
                           for (final x in situations) PopupMenuItem(value: x.id, child: Text('${x.icon} ${x.name}')),
                           const PopupMenuItem(value: -1, child: Text('Sin situación')),
                           const PopupMenuDivider(),
-                          const PopupMenuItem(value: -2, child: Text('Quitar de la biblioteca')),
+                          const PopupMenuItem(value: -2, child: Text('Quitar de la biblioteca (borra la copia)')),
                         ],
                       ),
                     );
@@ -128,11 +128,14 @@ class _MusicScreenState extends State<MusicScreen> {
     if (files.isEmpty) return;
     final paths = <String>[];
     for (final f in files) {
-      final path = await localPathFor(f, p.join(s.dataDir, 'musica'));
+      final path = await localPathFor(f, s.dataRoot.tmp);
       if (path != null) paths.add(path);
     }
     final sid = (_filter != null && _filter! > 0) ? _filter : null;
-    final added = music.addFiles(paths, situationId: sid);
+    final added = await music.addFiles(paths, situationId: sid);
+    for (final path in paths) {
+      if (p.isWithin(s.dataRoot.tmp, path)) File(path).deleteSync();
+    }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${added.length} pistas añadidas')));
     }
@@ -142,7 +145,7 @@ class _MusicScreenState extends State<MusicScreen> {
     final dir = await FilePicker.getDirectoryPath();
     if (dir == null) return;
     try {
-      final n = music.addFolder(dir);
+      final n = await music.addFolder(dir);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$n pistas importadas')));
     } catch (e) {
       if (mounted) {

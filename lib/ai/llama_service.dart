@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:llamadart/llamadart.dart';
 
+import '../core/portable.dart';
 import '../core/settings.dart';
 import 'llm.dart';
 
@@ -18,9 +19,14 @@ enum EngineStatus { empty, downloading, loading, ready, error }
 /// Mantiene dos motores: uno de chat (narrador) y otro opcional de
 /// embeddings para la memoria semántica (RAG).
 class LlamaService extends ChangeNotifier implements TextGenerator {
-  LlamaService(this.settings);
+  LlamaService(this.settings, this.dataRoot);
 
   final AppSettings settings;
+
+  /// Los modelos se descargan dentro de la carpeta de datos (portable).
+  final DataRoot dataRoot;
+
+  ModelLoadOptions get _download => ModelLoadOptions(cacheDirectory: dataRoot.models);
 
   LlamaEngine? _chat;
   LlamaEngine? _embed;
@@ -53,7 +59,7 @@ class LlamaService extends ChangeNotifier implements TextGenerator {
 
   ModelSource _source(String uri) {
     final looksLocal = !uri.contains('://') || uri.startsWith('file://');
-    if (looksLocal) return ModelSource.path(uri.replaceFirst('file://', ''));
+    if (looksLocal) return ModelSource.path(dataRoot.resolve(uri.replaceFirst('file://', '')));
     return ModelSource.parse(uri);
   }
 
@@ -98,6 +104,7 @@ class LlamaService extends ChangeNotifier implements TextGenerator {
       await engine.setModel(
         LlamaModel(_source(uri)),
         params: _params(embedding: false),
+        download: _download,
         onProgress: (p) {
           progress = p.fraction;
           final mb = (p.receivedBytes / 1e6).toStringAsFixed(0);
@@ -110,8 +117,8 @@ class LlamaService extends ChangeNotifier implements TextGenerator {
       notifyListeners();
       backendName = await engine.getBackendName();
       loadedModel = uri;
-      settings.chatModel = uri;
-      settings.addRecentModel(uri);
+      settings.chatModel = dataRoot.toStored(uri);
+      settings.addRecentModel(dataRoot.toStored(uri));
       status = EngineStatus.ready;
       message = 'Listo · $backendName';
     } catch (e, st) {
@@ -133,9 +140,9 @@ class LlamaService extends ChangeNotifier implements TextGenerator {
     try {
       final engine = _embed ?? LlamaEngine(LlamaBackend());
       _embed = engine;
-      await engine.setModel(LlamaModel(_source(uri)), params: _params(embedding: true));
+      await engine.setModel(LlamaModel(_source(uri)), params: _params(embedding: true), download: _download);
       loadedEmbedModel = uri;
-      settings.embedModel = uri;
+      settings.embedModel = dataRoot.toStored(uri);
       embedStatus = EngineStatus.ready;
     } catch (e) {
       debugPrint('Error cargando embeddings: $e');

@@ -103,7 +103,18 @@ class VoicePackManager extends ChangeNotifier {
       final meta = File(p.join(d.path, 'pack.json'));
       if (meta.existsSync()) {
         try {
-          out.add(InstalledVoicePack.fromJson(jsonDecode(meta.readAsStringSync()) as Map<String, dynamic>));
+          final stored = InstalledVoicePack.fromJson(jsonDecode(meta.readAsStringSync()) as Map<String, dynamic>);
+          // Las rutas se guardan relativas al paquete: así la carpeta se
+          // puede mover a otro equipo. Se resuelven aquí.
+          final files = {
+            for (final e in stored.files.entries)
+              e.key: e.value.split(',').map((f) => p.isAbsolute(f) ? f : p.join(d.path, f)).join(','),
+          };
+          final broken = files.values.any((v) => v.split(',').any((f) => !File(f).existsSync() && !Directory(f).existsSync()));
+          final pack = broken
+              ? _detect(stored.id, stored.kind, d.path)
+              : InstalledVoicePack(id: stored.id, kind: stored.kind, dir: d.path, files: files, numSpeakers: stored.numSpeakers);
+          out.add(pack);
         } catch (_) {}
       }
     }
@@ -117,7 +128,7 @@ class VoicePackManager extends ChangeNotifier {
     final pack = byId(id);
     if (pack == null || pack.numSpeakers == n) return;
     pack.numSpeakers = n;
-    File(p.join(pack.dir, 'pack.json')).writeAsStringSync(jsonEncode(pack.toJson()));
+    _writeMeta(pack);
     notifyListeners();
   }
 
@@ -145,8 +156,7 @@ class VoicePackManager extends ChangeNotifier {
       notifyListeners();
       final dest = p.join(rootDir, info.id);
       await Isolate.run(() => _extract(tmp.path, rootDir));
-      final pack = _detect(info.id, info.kind, dest);
-      File(p.join(dest, 'pack.json')).writeAsStringSync(jsonEncode(pack.toJson()));
+      _writeMeta(_detect(info.id, info.kind, dest));
       await refresh();
     } catch (e) {
       errors[info.id] = '$e';
@@ -163,8 +173,7 @@ class VoicePackManager extends ChangeNotifier {
     await Isolate.run(() => _extract(archivePath, rootDir));
     final after = Directory(rootDir).listSync().whereType<Directory>().where((d) => !before.contains(d.path));
     for (final d in after) {
-      final pack = _detect(p.basename(d.path), kind, d.path);
-      File(p.join(d.path, 'pack.json')).writeAsStringSync(jsonEncode(pack.toJson()));
+      _writeMeta(_detect(p.basename(d.path), kind, d.path));
     }
     await refresh();
   }
@@ -173,6 +182,17 @@ class VoicePackManager extends ChangeNotifier {
     final d = Directory(p.join(rootDir, id));
     if (d.existsSync()) d.deleteSync(recursive: true);
     await refresh();
+  }
+
+  static void _writeMeta(InstalledVoicePack pack) {
+    final rel = {
+      for (final e in pack.files.entries)
+        e.key: e.value.split(',').map((f) => p.relative(f, from: pack.dir).replaceAll(r'\', '/')).join(','),
+    };
+    final json = pack.toJson()
+      ..['files'] = rel
+      ..['dir'] = '.';
+    File(p.join(pack.dir, 'pack.json')).writeAsStringSync(jsonEncode(json));
   }
 
   static Future<void> _extract(String archivePath, String destRoot) =>

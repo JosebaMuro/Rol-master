@@ -65,8 +65,16 @@ class SettingsScreen extends StatelessWidget {
               onPressed: () async {
                 final f = await FilePicker.pickFile(type: FileType.any);
                 if (f == null) return;
-                final path = await localPathFor(f, p.join(s.dataDir, 'modelos'));
-                if (path != null) llm.loadChatModel(path);
+                final picked = await localPathFor(f, s.dataRoot.models);
+                if (picked == null) return;
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Copiando el modelo a la carpeta de la app…')),
+                  );
+                }
+                // Se copia a datos/modelos para que viaje con la app.
+                final path = await s.dataRoot.adopt(picked, s.dataRoot.models);
+                llm.loadChatModel(path);
               },
             ),
             OutlinedButton.icon(
@@ -215,7 +223,7 @@ class SettingsScreen extends StatelessWidget {
             onPressed: () async {
               final f = await FilePicker.pickFile(type: FileType.any);
               if (f == null) return;
-              final path = await localPathFor(f, p.join(s.dataDir, 'tmp'));
+              final path = await localPathFor(f, s.dataRoot.tmp);
               if (path != null) {
                 await packs.installFromFile(path, f.name.contains('kokoro') ? 'kokoro' : 'vits');
               }
@@ -239,13 +247,12 @@ class SettingsScreen extends StatelessWidget {
         header('Datos'),
         ListTile(
           leading: const Icon(Icons.folder),
-          title: const Text('Registros y mapas'),
-          subtitle: Text(s.documentsDir),
-        ),
-        ListTile(
-          leading: const Icon(Icons.storage),
-          title: const Text('Base de datos'),
-          subtitle: Text(p.join(s.dataDir, 'director.db')),
+          title: const Text('Carpeta de datos (portable)'),
+          subtitle: Text(
+            '${s.dataRoot.root}\n'
+            'Contiene base de datos, ajustes, modelos, voces, música, mapas, registros y exportaciones. '
+            'Copia la carpeta del programa (con «datos» dentro) a otro equipo o a un USB y lo tendrás todo.',
+          ),
         ),
         ListTile(
           leading: const Icon(Icons.computer),

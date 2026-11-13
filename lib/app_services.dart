@@ -9,6 +9,7 @@ import 'ai/llama_service.dart';
 import 'ai/memory/graph.dart';
 import 'ai/memory/rag.dart';
 import 'core/db.dart';
+import 'core/portable.dart';
 import 'core/settings.dart';
 import 'logs/log_service.dart';
 import 'maps/map_service.dart';
@@ -29,8 +30,7 @@ class AppServices {
     required this.music,
     required this.maps,
     required this.logs,
-    required this.dataDir,
-    required this.documentsDir,
+    required this.dataRoot,
   });
 
   final AppSettings settings;
@@ -43,41 +43,39 @@ class AppServices {
   final MusicService music;
   final MapService maps;
   final LogService logs;
-  final String dataDir;
-  final String documentsDir;
+  /// Carpeta única con todos los datos (portable).
+  final DataRoot dataRoot;
+  String get dataDir => dataRoot.root;
 
   static Future<AppServices> init() async {
-    final settings = await AppSettings.load();
-    final support = await getApplicationSupportDirectory();
-    final dataDir = p.join(support.path, 'DirectorDeRol');
-    Directory(dataDir).createSync(recursive: true);
-
-    String docs;
+    String fallback;
     try {
-      docs = p.join((await getApplicationDocumentsDirectory()).path, 'DirectorDeRol');
+      fallback = p.join((await getApplicationDocumentsDirectory()).path, 'DirectorDeRol');
     } catch (_) {
-      docs = p.join(dataDir, 'documentos');
+      fallback = p.join((await getApplicationSupportDirectory()).path, 'DirectorDeRol');
     }
+    String? androidDir;
     if (Platform.isAndroid) {
-      // En Android, la carpeta externa de la app es accesible desde el PC
+      // Carpeta externa de la app: se ve desde el PC por USB
       // (Android/data/<paquete>/files/DirectorDeRol).
       final ext = await getExternalStorageDirectory();
-      if (ext != null) docs = p.join(ext.path, 'DirectorDeRol');
+      if (ext != null) androidDir = p.join(ext.path, 'DirectorDeRol');
+      fallback = p.join((await getApplicationSupportDirectory()).path, 'DirectorDeRol');
     }
-    Directory(docs).createSync(recursive: true);
+    final root = DataRoot.locate(fallback: fallback, androidDir: androidDir);
+    final settings = AppSettings.load(root.settingsFile);
 
-    final db = AppDatabase.open(p.join(dataDir, 'director.db'));
-    final llm = LlamaService(settings);
+    final db = AppDatabase.open(root.database, root: root);
+    final llm = LlamaService(settings, root);
     final rag = RagMemory(db, llm);
     final graph = KnowledgeGraph(db);
-    final packs = VoicePackManager(p.join(dataDir, 'voces'));
+    final packs = VoicePackManager(root.voices);
     await packs.refresh();
-    final tmp = await getTemporaryDirectory();
-    final voices = VoiceService(settings: settings, packs: packs, tempDir: tmp.path);
-    final music = MusicService(db, settings)..init();
+    final voices = VoiceService(settings: settings, packs: packs, tempDir: root.tmp);
+    final music = MusicService(db, settings, root)..init();
     voices.onSpeakingChanged = music.duck;
-    final maps = MapService(db, llm, p.join(docs, 'mapas'));
-    final logs = LogService(db, p.join(docs, 'logs'));
+    final maps = MapService(db, llm, root.maps);
+    final logs = LogService(db, root.logs, exportsDir: root.exports);
 
     final s = AppServices._(
       settings: settings,
@@ -90,8 +88,7 @@ class AppServices {
       music: music,
       maps: maps,
       logs: logs,
-      dataDir: dataDir,
-      documentsDir: docs,
+      dataRoot: root,
     );
     // Carga en segundo plano para no retrasar el arranque.
     voices.init();

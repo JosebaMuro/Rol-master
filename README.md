@@ -10,12 +10,13 @@ La IA inventa campañas completas, narra, interpreta a los PNJ con **voces disti
 | --- | --- |
 | Historias completas y complejas | Al crear una campaña la IA escribe una "biblia": premisa, gancho, antagonista con motivación y plan, actos con objetivo y giro, PNJ con secretos, lugares, facciones, pistas y varios finales. El director la sigue acto a acto. |
 | Razonamiento | Modelos Qwen3 con modo *thinking*: el director planifica la escena (coherencia, reglas, pistas) antes de narrar. Se puede activar/desactivar y ver el razonamiento. |
-| Voces de PNJ | Cada PNJ recibe una voz propia según su género, edad y timbre. Dos motores: TTS del sistema (Windows/Android, variando voz, tono y velocidad) o voces neuronales locales **sherpa-onnx** (Piper, Kokoro con 53 voces). Se editan y prueban en *PNJ y voces*. |
+| Voces de PNJ | Cada PNJ recibe una voz propia según su género, edad y timbre. Dos motores: TTS del sistema (Windows con las voces de Configuración › Voz, Android con TextToSpeech; variando voz, tono y velocidad) o voces neuronales locales **sherpa-onnx** (Piper, Kokoro con 53 voces). Se editan y prueban en *PNJ y voces*. |
 | Continuar la última sesión | Todo se guarda en SQLite. Al terminar una sesión se escribe un resumen; la siguiente empieza con un "Anteriormente…". Si la app se cierra a mitad, se continúa la misma sesión. |
 | Memoria larga | Resumen acumulado (compactación automática) + **RAG** híbrido (embeddings EmbeddingGemma + BM25) + **grafo** de entidades y relaciones que la IA actualiza en cada turno. Puedes importar lore (.txt/.md) y editar el grafo. |
 | Música por situaciones | Biblioteca propia (mp3/ogg/wav/flac…) asignada a situaciones (Combate, Taberna, Misterio…, editables). Menú de situaciones para elegir qué suena; la IA sólo **sugiere** (opcionalmente puede ponerla sola). Fundido cruzado y bajada de volumen cuando hablan las voces. Importar una carpeta con subcarpetas con nombre de situación las asigna solas. |
 | Mapas | Mazmorras, criptas simétricas y cuevas procedurales en estilo pergamino, con salas numeradas y leyenda escrita por la IA. Se generan solos cuando el director entra en un lugar (`[[mapa: …]]`) o a mano. Visor a pantalla completa con zoom. |
-| Registro de partidas | Pestaña *Registro* por jugador y por tema, lector de sesiones, exportación a Markdown y preguntas a la IA sobre partidas pasadas ("¿qué nos dijo el herrero en la sesión 2?"). Además se escribe en `Documentos/DirectorDeRol/logs/<Jugador>/<Tema>/<Campaña>/sesion-NN.md`. |
+| Registro de partidas | Pestaña *Registro* por jugador y por tema, lector de sesiones, exportación a Markdown y preguntas a la IA sobre partidas pasadas ("¿qué nos dijo el herrero en la sesión 2?"). Además se escribe en `datos/registros/<Jugador>/<Tema>/<Campaña>/sesion-NN.md`. |
+| Exportar e importar historias | Menú ⋮ de la campaña → *Exportar historia* (con las partidas jugadas o sin jugar, para que otro grupo la empiece) a un único fichero `.rolpack`. En **Campañas** → 📂 se importa como una campaña nueva, con biblia, PNJ y voces, grafo, memoria, mapas y sesiones. |
 
 ## Motores de inferencia incluidos
 
@@ -36,6 +37,27 @@ La IA inventa campañas completas, narra, interpreta a los PNJ con **voces disti
 | EmbeddingGemma 300M | 0,3 GB | Memoria semántica (opcional) |
 
 Se descargan desde la app (Ajustes → *Usar*) la primera vez y quedan en caché. También puedes cargar cualquier `.gguf` propio o una URL `hf://`.
+
+## Carpeta portable
+
+Todo lo que usa la app vive en **una sola carpeta**, `datos`:
+
+```
+datos/
+  director.db      campañas, sesiones, PNJ, memoria, música, mapas
+  ajustes.json     ajustes
+  modelos/         modelos .gguf (descargados o copiados)
+  voces/           voces neuronales
+  musica/<Situación>/  copias de tus pistas, ordenadas por situación
+  mapas/           imágenes de los mapas
+  registros/       registros de partida en Markdown
+  exportaciones/   historias .rolpack y registros exportados
+```
+
+- **Windows:** `datos` está junto a `director_de_rol.exe`. Con el ZIP portable o el instalador (que instala en tu usuario, `%LOCALAPPDATA%\Programs\Director de Rol`) basta con copiar la carpeta del programa a otro PC o a un USB para llevártelo todo. Si la carpeta del programa no se puede escribir (p. ej. en *Archivos de programa*), se usa `Documentos\DirectorDeRol`.
+- **Android:** `Android/data/<paquete>/files/DirectorDeRol`, visible desde el PC por USB.
+
+Las rutas se guardan relativas a `datos`, así que mover la carpeta no rompe nada. La ruta actual se ve en Ajustes.
 
 ## Primeros pasos
 

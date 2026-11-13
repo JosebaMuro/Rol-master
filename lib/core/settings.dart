@@ -1,30 +1,58 @@
 import 'dart:convert';
 
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models.dart';
 
-/// Preferencias de la aplicación, persistidas con shared_preferences.
+/// Almacén de ajustes en un fichero JSON dentro de la carpeta de datos, para
+/// que la app sea portable (nada en el registro de Windows ni en AppData).
+class JsonPrefs {
+  JsonPrefs(this.path) {
+    final f = path == null ? null : File(path!);
+    if (f != null && f.existsSync()) {
+      try {
+        _data.addAll((jsonDecode(f.readAsStringSync()) as Map).cast<String, Object?>());
+      } catch (_) {}
+    }
+  }
+
+  /// Sin ruta: sólo en memoria (pruebas).
+  JsonPrefs.memory() : path = null;
+
+  final String? path;
+  final Map<String, Object?> _data = {};
+
+  String? getString(String k) => _data[k] is String ? _data[k] as String : null;
+  bool? getBool(String k) => _data[k] is bool ? _data[k] as bool : null;
+  int? getInt(String k) => _data[k] is num ? (_data[k] as num).toInt() : null;
+  double? getDouble(String k) => _data[k] is num ? (_data[k] as num).toDouble() : null;
+
+  void set(String k, Object v) {
+    _data[k] = v;
+    if (path == null) return;
+    try {
+      final tmp = File('$path.tmp');
+      tmp.writeAsStringSync(const JsonEncoder.withIndent('  ').convert(_data));
+      tmp.renameSync(path!);
+    } catch (e) {
+      debugPrint('No se pudieron guardar los ajustes: $e');
+    }
+  }
+}
+
+/// Preferencias de la aplicación, guardadas en `ajustes.json`.
 class AppSettings extends ChangeNotifier {
   AppSettings(this._prefs);
 
-  static Future<AppSettings> load() async => AppSettings(await SharedPreferences.getInstance());
+  factory AppSettings.load(String path) => AppSettings(JsonPrefs(path));
 
-  final SharedPreferences _prefs;
+  final JsonPrefs _prefs;
 
   String _s(String k, String d) => _prefs.getString(k) ?? d;
   void _set(String k, Object v) {
-    switch (v) {
-      case String s:
-        _prefs.setString(k, s);
-      case bool b:
-        _prefs.setBool(k, b);
-      case int i:
-        _prefs.setInt(k, i);
-      case double d:
-        _prefs.setDouble(k, d);
-    }
+    _prefs.set(k, v);
     notifyListeners();
   }
 
