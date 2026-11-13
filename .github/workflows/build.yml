@@ -11,6 +11,10 @@ on:
         description: 'Incluir también CUDA en Windows (≈700 MB más)'
         type: boolean
         default: false
+      release_tag:
+        description: 'Crear una release con esta etiqueta (p. ej. v1.0.0). Vacío = sólo compilar.'
+        type: string
+        default: ''
 
 env:
   FLUTTER_VERSION: '3.50.0'
@@ -100,7 +104,7 @@ jobs:
 
   release:
     name: Publicar release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release_tag != ''
     needs: [android, windows]
     runs-on: ubuntu-latest
     permissions:
@@ -112,5 +116,8 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          name: Director de Rol ${{ github.event.inputs.release_tag || github.ref_name }}
           files: dist/*
           generate_release_notes: true
