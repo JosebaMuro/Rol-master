@@ -80,6 +80,7 @@ class NeuralTts {
         final n = tts.numSpeakers;
         final sid = n <= 0 ? 0 : (m['sid'] as int) % n;
         final audio = tts.generate(text: m['text'] as String, sid: sid, speed: (m['speed'] as num).toDouble());
+        if (audio.samples.isEmpty) throw Exception('el modelo no generó audio');
         sherpa.writeWave(filename: m['out'] as String, samples: audio.samples, sampleRate: audio.sampleRate);
         out.send({'id': m['id'], 'speakers': n});
       } catch (e) {
@@ -112,6 +113,6 @@ class NeuralTts {
             ),
             numThreads: 2,
           );
-    return sherpa.OfflineTts(sherpa.OfflineTtsConfig(model: model, maxNumSentences: 2));
+    return sherpa.OfflineTts(sherpa.OfflineTtsConfig(model: model));
   }
 }

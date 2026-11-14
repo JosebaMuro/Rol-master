@@ -41,6 +41,8 @@ class VoiceService extends ChangeNotifier {
 
   List<Map<String, String>> systemVoices = [];
   bool speaking = false;
+  /// Último fallo de la voz neuronal (se muestra al probar voces).
+  String? lastError;
   String? currentSpeaker;
   int _generation = 0;
   Completer<void>? _playing;
@@ -191,9 +193,15 @@ class VoiceService extends ChangeNotifier {
     if (v.engine == 'neural' && packs.byId(v.neuralPack) != null) {
       try {
         await _speakNeural(text, v);
+        if (lastError != null) {
+          lastError = null;
+          notifyListeners();
+        }
         return;
       } catch (e) {
         debugPrint('Voz neuronal falló, uso la del sistema: $e');
+        lastError = 'La voz neuronal falló y se usó la del sistema: ${'$e'.replaceFirst('Exception: ', '')}';
+        notifyListeners();
       }
     }
     await _speakSystem(text, v);
