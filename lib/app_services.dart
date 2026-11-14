@@ -15,6 +15,7 @@ import 'docs/doc_library.dart';
 import 'logs/log_service.dart';
 import 'maps/map_service.dart';
 import 'music/music_service.dart';
+import 'voice/speech_input.dart';
 import 'voice/voice_packs.dart';
 import 'voice/voice_service.dart';
 
@@ -33,6 +34,7 @@ class AppServices {
     required this.logs,
     required this.docs,
     required this.dataRoot,
+    required this.speech,
   });
 
   final AppSettings settings;
@@ -46,6 +48,8 @@ class AppServices {
   final MapService maps;
   final LogService logs;
   final DocLibrary docs;
+  /// Micrófono + reconocimiento de voz local.
+  final SpeechInput speech;
   /// Carpeta única con todos los datos (portable).
   final DataRoot dataRoot;
   String get dataDir => dataRoot.root;
@@ -93,6 +97,7 @@ class AppServices {
       logs: logs,
       docs: DocLibrary(db, rag, llm, root),
       dataRoot: root,
+      speech: SpeechInput(root.speech, selectedModel: settings.speechModel),
     );
     // Carga en segundo plano para no retrasar el arranque.
     voices.init();
@@ -107,6 +112,7 @@ class AppServices {
         thinking: settings.thinking,
         thinkingBudget: settings.thinkingBudget,
         contextSize: settings.contextSize,
+        worldEvery: settings.worldEvery,
       );
 
   Director director() => Director(
@@ -129,6 +135,7 @@ class AppServices {
   Future<void> dispose() async {
     await voices.stop();
     await music.stop();
+    speech.dispose();
     await llm.shutdown();
     db.close();
   }

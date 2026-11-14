@@ -14,6 +14,16 @@ class NpcVoicesScreen extends StatefulWidget {
   State<NpcVoicesScreen> createState() => _NpcVoicesScreenState();
 }
 
+String _attitudeEmoji(int a) => switch (a) {
+      <= -3 => '⚔️',
+      -2 => '😠',
+      -1 => '🤨',
+      0 => '😐',
+      1 => '🙂',
+      2 => '😊',
+      _ => '🤝',
+    };
+
 class _NpcVoicesScreenState extends State<NpcVoicesScreen> {
   @override
   Widget build(BuildContext context) {
@@ -26,7 +36,7 @@ class _NpcVoicesScreenState extends State<NpcVoicesScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Row(children: [
             const Expanded(
-              child: Text('Cada PNJ habla con su propia voz. La IA las asigna según género y edad; puedes ajustarlas.'),
+              child: Text('Cada PNJ tiene su voz, su objetivo y su actitud hacia el grupo, y sólo sabe lo que ha presenciado. La IA los actualiza al jugar; puedes ajustarlos.'),
             ),
             TextButton.icon(
               icon: const Icon(Icons.shuffle),
@@ -47,12 +57,81 @@ class _NpcVoicesScreenState extends State<NpcVoicesScreen> {
               leading: CircleAvatar(child: Text(n.name.characters.first)),
               title: Text(n.name),
               subtitle: Text(
-                [n.description, if (n.voiceHint.isNotEmpty) 'Voz: ${n.voiceHint}'].where((e) => e.isNotEmpty).join('\n'),
+                [
+                  '${_attitudeEmoji(n.attitude)} ${n.attitudeName}${n.goal.isEmpty ? '' : ' · quiere: ${n.goal}'}',
+                  n.description,
+                  if (n.voiceHint.isNotEmpty) 'Voz: ${n.voiceHint}',
+                ].where((e) => e.isNotEmpty).join('\n'),
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
               ),
               childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
               children: [
+                // Actitud hacia el grupo.
+                Row(children: [
+                  const Text('Actitud'),
+                  Expanded(
+                    child: Slider(
+                      value: n.attitude.toDouble().clamp(-3, 3),
+                      min: -3,
+                      max: 3,
+                      divisions: 6,
+                      label: n.attitudeName,
+                      onChanged: (v) {
+                        n.attitude = v.round();
+                        s.db.updateNpcState(n);
+                        setState(() {});
+                      },
+                    ),
+                  ),
+                  SizedBox(width: 90, child: Text('${_attitudeEmoji(n.attitude)} ${n.attitudeName}')),
+                ]),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  leading: const Icon(Icons.flag_outlined),
+                  title: Text(n.goal.isEmpty ? 'Sin objetivo conocido (toca para escribirlo)' : 'Quiere: ${n.goal}'),
+                  onTap: () async {
+                    final ctrl = TextEditingController(text: n.goal);
+                    final v = await showDialog<String>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: Text('Objetivo de ${n.name}'),
+                        content: TextField(controller: ctrl, autofocus: true, maxLines: 3),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+                          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text), child: const Text('Guardar')),
+                        ],
+                      ),
+                    );
+                    if (v != null) {
+                      n.goal = v.trim();
+                      s.db.updateNpcState(n);
+                      setState(() {});
+                    }
+                  },
+                ),
+                if (n.knows.isNotEmpty)
+                  ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.visibility_outlined),
+                    title: Text('Lo que ha presenciado (${n.knows.length})'),
+                    children: [
+                      for (final k in n.knows.reversed)
+                        ListTile(
+                          dense: true,
+                          title: Text(k),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.close, size: 16),
+                            onPressed: () {
+                              n.knows.remove(k);
+                              s.db.updateNpcState(n);
+                              setState(() {});
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
                 VoiceEditor(
                   voice: n.voice,
                   sample: 'Soy ${n.name}. ${n.description.split('.').first}.',

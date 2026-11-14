@@ -131,6 +131,19 @@ class AppSettings extends ChangeNotifier {
   bool get duckMusic => _prefs.getBool('duckMusic') ?? true;
   set duckMusic(bool v) => _set('duckMusic', v);
 
+  // ---- Juego
+  /// Cada cuántos turnos avanza el mundo por su cuenta (0 = nunca).
+  int get worldEvery => _prefs.getInt('worldEvery') ?? 4;
+  set worldEvery(int v) => _set('worldEvery', v);
+
+  // ---- Reconocimiento de voz (jugar hablando)
+  String get speechModel => _s('speechModel', '');
+  set speechModel(String v) => _set('speechModel', v);
+
+  /// Enviar en cuanto se reconoce el texto, sin revisarlo antes.
+  bool get speechAutoSend => _prefs.getBool('speechAutoSend') ?? false;
+  set speechAutoSend(bool v) => _set('speechAutoSend', v);
+
   // ---- Varios
   List<String> get recentModels {
     final s = _prefs.getString('recentModels');

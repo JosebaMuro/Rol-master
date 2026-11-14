@@ -10,11 +10,14 @@ import '../ai/narration_parser.dart';
 import '../app_services.dart';
 import '../core/models.dart';
 import '../core/settings.dart';
+import '../game/dice.dart';
+import '../voice/speech_input.dart';
 import '../voice/voice_service.dart';
 import 'map_viewer.dart';
 import 'widgets/music_bar.dart';
 import 'widgets/rich_message.dart';
 import 'widgets/scene_panel.dart';
+import 'widgets/table_sheets.dart';
 
 /// Mesa de juego: chat con el director, voces, música, mapas y tiradas.
 class PlayScreen extends StatefulWidget {
@@ -44,6 +47,7 @@ class _PlayScreenState extends State<PlayScreen> {
   MapRecord? _lastMap;
   bool _showMap = false;
   bool _ending = false;
+  StreamSubscription<List<String>>? _archiveSub;
 
   @override
   void initState() {
@@ -61,6 +65,12 @@ class _PlayScreenState extends State<PlayScreen> {
     } else {
       session = director.startSession(campaign);
     }
+    director.prepare(campaign);
+    campaign = s.db.campaign(campaign.id!)!;
+    // El archivista trabaja tras cada turno; sus notas aparecen al llegar.
+    _archiveSub = director.archiveNotes.listen((_) {
+      if (mounted && !_generating) setState(_reload);
+    });
     _reload();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final first = _messages.where((m) => m.role != MessageRole.player).lastOrNull;
@@ -91,14 +101,15 @@ class _PlayScreenState extends State<PlayScreen> {
 
   List<String> get _situationNames => s.db.situations().map((e) => e.name).toList();
 
-  Future<void> _send([String? override]) async {
+  Future<void> _send([String? override, String? speaker]) async {
     final text = (override ?? _input.text).trim();
     if (text.isEmpty || _generating) return;
+    final who = speaker ?? _speaker;
     if (!s.llm.isReady) {
       _snack('Carga un modelo de IA en Ajustes');
       return;
     }
-    _input.clear();
+    if (override == null) _input.clear();
     await s.voices.stop();
     director.config = s.directorConfig;
     setState(() {
@@ -107,11 +118,11 @@ class _PlayScreenState extends State<PlayScreen> {
       _thinking = '';
       _pendingRolls = [];
       _messages.add(
-        ChatMessage(campaignId: campaign.id!, sessionId: session.id!, role: MessageRole.player, speaker: _speaker, content: text),
+        ChatMessage(campaignId: campaign.id!, sessionId: session.id!, role: MessageRole.player, speaker: who, content: text),
       );
     });
     _toBottom();
-    await _consume(director.playerTurn(campaign: campaign, session: session, speaker: _speaker, text: text, situations: _situationNames));
+    await _consume(director.playerTurn(campaign: campaign, session: session, speaker: who, text: text, situations: _situationNames));
   }
 
   Future<void> _regenerate() async {
@@ -237,6 +248,20 @@ class _PlayScreenState extends State<PlayScreen> {
     if (mounted) Navigator.pop(context);
   }
 
+  /// La app tira por el personaje: d20 + su modificador contra la CD, y
+  /// envía el resultado al director para que narre la consecuencia.
+  Future<void> _autoRoll(String raw) async {
+    if (_generating) return;
+    final req = RollRequest.parse(raw);
+    final who = req.who.isNotEmpty ? req.who : (_speaker == 'Grupo' ? '' : _speaker);
+    final sheet = who.isEmpty ? null : director.state.find(campaign.id!, who);
+    final name = sheet?.name ?? (who.isEmpty ? _speaker : who);
+    final check = SkillCheck.roll(req, who: name, modifier: sheet?.modFor(req.skill) ?? 0);
+    setState(() => _pendingRolls = _pendingRolls.where((r) => r != raw).toList());
+    final speaker = players.where((p) => _label(p) == name).isNotEmpty ? name : _speaker;
+    await _send(check.describe(), speaker);
+  }
+
   Future<void> _rollDialog([String? request]) async {
     final rnd = Random();
     final result = await showDialog<String>(
@@ -265,6 +290,64 @@ class _PlayScreenState extends State<PlayScreen> {
     if (result != null) {
       _input.text = _input.text.isEmpty ? result : '${_input.text} ($result)';
       setState(() => _pendingRolls = _pendingRolls.where((r) => r != request).toList());
+    }
+  }
+
+  Future<void> _pin(ChatMessage m) async {
+    final ctrl = TextEditingController(text: m.content.replaceAll('**', '').trim());
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Fijar en la memoria'),
+        content: TextField(
+          controller: ctrl,
+          minLines: 3,
+          maxLines: 10,
+          decoration: const InputDecoration(helperText: 'Recórtalo a lo esencial: el director lo tendrá siempre presente.'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Fijar')),
+        ],
+      ),
+    );
+    if (ok == true && ctrl.text.trim().isNotEmpty) {
+      s.db.addPin(PinnedMemory(campaignId: campaign.id!, text: ctrl.text.trim()));
+      _snack('Recuerdo fijado');
+    }
+  }
+
+  void _openWorld() => showWorldSheet(
+        context,
+        db: s.db,
+        campaign: campaign,
+        session: session,
+        director: director,
+        onChanged: () {
+          if (mounted) setState(_reload);
+        },
+      );
+
+  Future<void> _toggleMic(SpeechInput speech) async {
+    if (speech.transcribing) return;
+    if (!speech.recording) {
+      await s.voices.stop();
+      final err = await speech.start();
+      if (err != null) _snack(err);
+      return;
+    }
+    try {
+      final text = await speech.stop();
+      if (!mounted) return;
+      if (text.isEmpty) {
+        _snack('No se ha entendido nada. Prueba otra vez, más cerca del micrófono.');
+        return;
+      }
+      _input.text = _input.text.trim().isEmpty ? text : '${_input.text.trim()} $text';
+      _input.selection = TextSelection.collapsed(offset: _input.text.length);
+      if (s.settings.speechAutoSend) await _send();
+    } catch (e) {
+      _snack('Error al reconocer la voz: $e');
     }
   }
 
@@ -311,6 +394,8 @@ class _PlayScreenState extends State<PlayScreen> {
 
   @override
   void dispose() {
+    _archiveSub?.cancel();
+    s.speech.cancel();
     s.voices.stop();
     _input.dispose();
     _scroll.dispose();
@@ -344,17 +429,23 @@ class _PlayScreenState extends State<PlayScreen> {
               if (!settings.voiceEnabled) voices.stop();
             },
           ),
-          IconButton(
-            tooltip: 'Razonamiento ${settings.thinking ? 'activado' : 'desactivado'}',
-            icon: Icon(settings.thinking ? Icons.psychology : Icons.psychology_outlined),
-            onPressed: () => settings.thinking = !settings.thinking,
-          ),
-          IconButton(
-            tooltip: settings.showScenePanel ? 'Ocultar panel de imagen' : 'Mostrar panel de imagen',
-            icon: Icon(settings.showScenePanel ? Icons.vertical_split : Icons.view_agenda_outlined),
-            onPressed: () => settings.showScenePanel = !settings.showScenePanel,
-          ),
+          IconButton(tooltip: 'Fichas', icon: const Icon(Icons.badge_outlined), onPressed: () => showCharacterSheets(context, s.db, campaign.id!)),
+          IconButton(tooltip: 'El mundo: pendientes, recuerdos y tramas', icon: const Icon(Icons.public), onPressed: _openWorld),
           IconButton(tooltip: 'Mapas', icon: const Icon(Icons.map), onPressed: _showMaps),
+          PopupMenuButton<String>(
+            onSelected: (v) {
+              switch (v) {
+                case 'thinking':
+                  settings.thinking = !settings.thinking;
+                case 'panel':
+                  settings.showScenePanel = !settings.showScenePanel;
+              }
+            },
+            itemBuilder: (_) => [
+              CheckedPopupMenuItem(value: 'thinking', checked: settings.thinking, child: const Text('Razonamiento del director')),
+              CheckedPopupMenuItem(value: 'panel', checked: settings.showScenePanel, child: const Text('Panel de imagen')),
+            ],
+          ),
           IconButton(tooltip: 'Terminar sesión', icon: const Icon(Icons.flag), onPressed: _ending ? null : _endSession),
         ],
       ),
@@ -394,6 +485,7 @@ class _PlayScreenState extends State<PlayScreen> {
                         message: m,
                         showThinking: settings.showThinking,
                         onSpeak: m.role == MessageRole.player ? null : () => _speak(m),
+                        onPin: m.role == MessageRole.player ? null : () => _pin(m),
                       );
                     },
                   ),
@@ -408,7 +500,17 @@ class _PlayScreenState extends State<PlayScreen> {
                         for (final r in _pendingRolls)
                           Padding(
                             padding: const EdgeInsets.only(right: 6),
-                            child: ActionChip(avatar: const Icon(Icons.casino, size: 18), label: Text(r), onPressed: () => _rollDialog(r)),
+                            child: GestureDetector(
+                              onLongPress: () => _rollDialog(r),
+                              child: Tooltip(
+                                message: 'Toca y la app tira por el personaje · mantén pulsado para tirar a mano',
+                                child: ActionChip(
+                                  avatar: const Icon(Icons.casino, size: 18),
+                                  label: Text(RollRequest.parse(r).toString()),
+                                  onPressed: () => _autoRoll(r),
+                                ),
+                              ),
+                            ),
                           ),
                         if (_lastMap != null)
                           ActionChip(
@@ -438,6 +540,29 @@ class _PlayScreenState extends State<PlayScreen> {
         title: Text(voices.currentSpeaker == null ? 'Narrando…' : '${voices.currentSpeaker} habla…'),
         trailing: IconButton(icon: const Icon(Icons.stop), onPressed: voices.stop),
       ),
+    );
+  }
+
+  Widget _micButton() {
+    final speech = context.watch<SpeechInput>();
+    if (speech.transcribing) {
+      return const Padding(
+        padding: EdgeInsets.all(12),
+        child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+    if (speech.recording) {
+      return IconButton.filled(
+        tooltip: 'Terminar y transcribir',
+        style: IconButton.styleFrom(backgroundColor: Colors.redAccent.withValues(alpha: 0.6 + min(0.4, speech.level * 20))),
+        icon: const Icon(Icons.stop),
+        onPressed: () => _toggleMic(speech),
+      );
+    }
+    return IconButton(
+      tooltip: speech.available ? 'Hablar (toca para empezar y otra vez para terminar)' : 'Hablar: descarga un modelo de voz en Ajustes',
+      icon: Icon(speech.available ? Icons.mic : Icons.mic_none),
+      onPressed: () => _toggleMic(speech),
     );
   }
 
@@ -475,6 +600,7 @@ class _PlayScreenState extends State<PlayScreen> {
             Row(
               children: [
                 IconButton(tooltip: 'Tirar dados', icon: const Icon(Icons.casino), onPressed: () => _rollDialog()),
+                _micButton(),
                 Expanded(
                   child: TextField(
                     controller: _input,

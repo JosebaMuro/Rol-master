@@ -16,7 +16,7 @@ import 'package:path/path.dart' as p;
 /// carpeta, de modo que siguen funcionando si se mueve.
 class DataRoot {
   DataRoot(this.root) {
-    for (final d in [models, voices, music, maps, backgrounds, documents, logs, exports, tmp]) {
+    for (final d in [models, voices, speech, music, maps, backgrounds, documents, logs, exports, tmp]) {
       Directory(d).createSync(recursive: true);
     }
   }
@@ -27,6 +27,8 @@ class DataRoot {
   String get settingsFile => p.join(root, 'ajustes.json');
   String get models => p.join(root, 'modelos');
   String get voices => p.join(root, 'voces');
+  /// Modelos de reconocimiento de voz (para jugar hablando).
+  String get speech => p.join(root, 'reconocimiento');
   String get music => p.join(root, 'musica');
   String get maps => p.join(root, 'mapas');
   String get backgrounds => p.join(root, 'fondos');

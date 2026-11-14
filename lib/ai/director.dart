@@ -139,6 +139,19 @@ class Director {
     return s;
   }
 
+  /// Las tareas en segundo plano guardan la memoria en la base de datos;
+  /// la copia de la campaña que tiene la pantalla puede haberse quedado
+  /// atrás, y al guardarla se perdería lo nuevo.
+  void _sync(Campaign c) {
+    final fresh = db.campaign(c.id!);
+    if (fresh == null) return;
+    c
+      ..memory = fresh.memory
+      ..bible = fresh.bible
+      ..currentAct = fresh.currentAct
+      ..location = fresh.location;
+  }
+
   /// Fichas de los personajes y relojes del mundo (también para campañas
   /// creadas antes de que existieran).
   void prepare(Campaign c) {
@@ -161,6 +174,7 @@ class Director {
   /// Salto de tiempo pedido por el grupo: el mundo avanza y el director lo
   /// tendrá en cuenta en su próxima respuesta.
   List<String> skipTime(Campaign c, GameSession s, int days) {
+    _sync(c);
     final notes = ['⌛ Pasan ${WorldEngine.describeDays(days)}.', ...world.timeSkip(c, days)];
     tableNote(c, s, notes);
     return notes;
@@ -181,6 +195,7 @@ class Director {
     required List<String> situations,
   }) async* {
     await _background;
+    _sync(campaign);
     final playerMsg = _save(ChatMessage(
       campaignId: campaign.id!,
       sessionId: session.id!,
@@ -198,6 +213,7 @@ class Director {
     required List<String> situations,
   }) async* {
     await _background;
+    _sync(campaign);
     final recent = db.recentMessages(campaign.id!, limit: 12);
     final lastPlayer = recent.lastWhere((m) => m.role == MessageRole.player, orElse: () => recent.isEmpty ? _none : recent.first);
     if (lastPlayer.role != MessageRole.player) return;
@@ -388,6 +404,8 @@ class Director {
       }
       if (b2.isNotEmpty) memory = b2.toString().trim();
     }
+    // Se guarda sobre la versión más reciente (la mesa pudo cambiar algo).
+    _sync(c);
     c.memory = memory;
     c.bible[_memoryPointerKey] = toSummarize.last.id;
     db.updateCampaign(c);

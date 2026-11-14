@@ -22,18 +22,21 @@ List<InlineSpan> markdownSpans(String text, TextStyle base) {
 }
 
 class MessageBubble extends StatelessWidget {
-  const MessageBubble({super.key, required this.message, this.onSpeak, this.showThinking = false})
+  const MessageBubble({super.key, required this.message, this.onSpeak, this.onPin, this.showThinking = false})
       : streamingText = null,
         streamingThinking = null;
 
   const MessageBubble.streaming({super.key, required String text, required String thinking, this.showThinking = false})
       : message = null,
         onSpeak = null,
+        onPin = null,
         streamingText = text,
         streamingThinking = thinking;
 
   final ChatMessage? message;
   final VoidCallback? onSpeak;
+  /// Fija el mensaje en la memoria del director.
+  final VoidCallback? onPin;
   final bool showThinking;
   final String? streamingText;
   final String? streamingThinking;
@@ -47,6 +50,19 @@ class MessageBubble extends StatelessWidget {
     final text = m?.content ?? streamingText ?? '';
     final thinking = m?.thinking ?? streamingThinking ?? '';
     final base = Theme.of(context).textTheme.bodyLarge!.copyWith(height: 1.45);
+    // Notas de la mesa (PV, objetos, el mundo…): discretas, no son narración.
+    if (isSystem && m!.speaker == 'Mesa') {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final line in text.split('\n'))
+              Text(line, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: kGold.withValues(alpha: 0.85))),
+          ],
+        ),
+      );
+    }
 
     final bubble = Container(
       constraints: BoxConstraints(maxWidth: isPlayer ? 560 : 860),
@@ -68,6 +84,14 @@ class MessageBubble extends StatelessWidget {
             style: TextStyle(fontWeight: FontWeight.bold, color: isPlayer ? scheme.onPrimaryContainer : kGold),
           ),
           const Spacer(),
+          if (onPin != null)
+            InkWell(
+              onTap: onPin,
+              child: const Padding(
+                padding: EdgeInsets.all(2),
+                child: Tooltip(message: 'Fijar en la memoria del director', child: Icon(Icons.push_pin_outlined, size: 18)),
+              ),
+            ),
           if (onSpeak != null)
             InkWell(onTap: onSpeak, child: const Padding(padding: EdgeInsets.all(2), child: Icon(Icons.volume_up, size: 18))),
         ]),

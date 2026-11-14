@@ -47,6 +47,7 @@ dependencies:
   archive: ^4.6.0
   syncfusion_flutter_pdf: ^35.1.46
   http: ^1.6.0
+  record: 7.1.2
 
 # Motores de inferencia nativos que se empaquetan (los descarga el build hook
 # de llamadart en la primera compilación):
