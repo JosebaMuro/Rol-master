@@ -121,13 +121,18 @@ Future<MapRecord?> showCreateMapDialog(BuildContext context, {Campaign? campaign
         content: Column(mainAxisSize: MainAxisSize.min, children: [
           TextField(controller: title, decoration: const InputDecoration(labelText: 'Título')),
           const SizedBox(height: 12),
-          SegmentedButton<String>(
-            segments: [
-              for (final e in DungeonGenerator.kinds.entries) ButtonSegment(value: e.key, label: Text(e.value)),
-            ],
-            selected: {kind},
-            onSelectionChanged: (v) => setD(() => kind = v.first),
-          ),
+          // Cinco tipos no caben en una fila en el móvil: fichas que saltan de línea.
+          Wrap(spacing: 6, runSpacing: 4, children: [
+            for (final e in DungeonGenerator.kinds.entries)
+              ChoiceChip(
+                label: Text(e.value),
+                selected: kind == e.key,
+                onSelected: (_) => setD(() {
+                  if (title.text == '${DungeonGenerator.kinds[kind]} sin nombre') title.text = '${e.value} sin nombre';
+                  kind = e.key;
+                }),
+              ),
+          ]),
           if (kind == 'mazmorra')
             Row(children: [
               const Text('Salas'),
@@ -137,7 +142,7 @@ Future<MapRecord?> showCreateMapDialog(BuildContext context, {Campaign? campaign
             ]),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('Describir salas con IA'),
+            title: Text(kind == 'pueblo' ? 'Describir lugares con IA' : 'Describir salas con IA'),
             value: describe,
             onChanged: s.llm.isReady ? (v) => setD(() => describe = v) : null,
           ),

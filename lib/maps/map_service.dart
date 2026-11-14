@@ -40,7 +40,7 @@ class MapService extends ChangeNotifier {
       await file.writeAsBytes(png);
 
       var key = <Map<String, dynamic>>[
-        for (final r in map.rooms) {'n': r.number, 'title': 'Sala ${r.number}', 'text': ''},
+        for (final r in map.rooms) {'n': r.number, 'title': map.labels[r] ?? (map.isTown ? 'Lugar ${r.number}' : 'Sala ${r.number}'), 'text': ''},
       ];
       if (describeWithAi && llm.isReady) {
         key = await _describe(map, title, k, campaign) ?? key;
@@ -62,18 +62,22 @@ class MapService extends ChangeNotifier {
 
   Future<List<Map<String, dynamic>>?> _describe(DungeonMap map, String title, String kind, Campaign? c) async {
     final links = map.links.map((l) => '${map.rooms[l.$1].number}-${map.rooms[l.$2].number}').join(', ');
+    final campaign = c == null ? '' : '\nCampaña: ${c.title}. ${c.premise}\nLugar actual: ${c.location}';
+    final request = map.isTown
+        ? 'Mapa: "$title", un pueblo amurallado con ${map.rooms.length} lugares numerados: '
+            '${[for (final r in map.rooms) '${r.number}. ${map.labels[r] ?? 'edificio'}'].join('; ')}. '
+            'Da a cada lugar un nombre propio evocador (p. ej. «Taberna del Jabalí Tuerto») y 2-3 frases: quién '
+            'está allí, qué se puede conseguir y qué rumor o problema hay.$campaign'
+        : 'Mapa: "$title" (tipo $kind) con ${map.rooms.length} salas numeradas. Conexiones: $links. '
+            'La sala 1 es la entrada y la ${map.rooms.length} la más profunda.$campaign';
     try {
       final r = await llm.json(
         [
           const LlmMessage.system(
-            'Eres un diseñador de aventuras de rol. Escribes leyendas de mapas: cada sala con un título evocador y '
-            '2-3 frases (qué se ve, qué peligro o tesoro hay, qué pista contiene). En español.',
+            'Eres un diseñador de aventuras de rol. Escribes leyendas de mapas: cada sala o lugar con un título '
+            'evocador y 2-3 frases (qué se ve, qué peligro, tesoro o persona hay, qué pista contiene). En español.',
           ),
-          LlmMessage.user(
-            'Mapa: "$title" (tipo $kind) con ${map.rooms.length} salas numeradas. Conexiones: $links. '
-            'La sala 1 es la entrada y la ${map.rooms.length} la más profunda.'
-            '${c == null ? '' : '\nCampaña: ${c.title}. ${c.premise}\nLugar actual: ${c.location}'}',
-          ),
+          LlmMessage.user(request),
         ],
         schema: {
           'type': 'object',

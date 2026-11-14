@@ -28,7 +28,7 @@ FORMATO OBLIGATORIO
   (sin comillas, una línea por intervención). Así se le asigna su voz.
 - Etiquetas de control, en línea aparte, sólo cuando correspondan (el jugador no las ve):
   [[musica: SITUACIÓN]]  cuando cambie el ambiente. SITUACIÓN es una de: ${situations.join(', ')}.
-  [[mapa: TIPO | Título]]  cuando los jugadores entren en un lugar que merezca mapa. TIPO: mazmorra, cueva o cripta.
+  [[mapa: TIPO | Título]]  cuando los jugadores entren en un lugar que merezca mapa. TIPO: mazmorra, cueva, cripta, ruinas o pueblo.
   [[tirada: Personaje | Habilidad CD número]]  cuando pidas una tirada (la app la resuelve).
   [[pv: Personaje -número]] o [[pv: Personaje +número]]  daño o curación.
   [[objeto: Personaje +Nombre del objeto]] o [[objeto: Personaje -Nombre del objeto]]  cuando gane o pierda algo.

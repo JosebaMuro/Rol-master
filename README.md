@@ -14,7 +14,14 @@ La IA inventa campañas completas, narra, interpreta a los PNJ con **voces disti
 | Continuar la última sesión | Todo se guarda en SQLite. Al terminar una sesión se escribe un resumen; la siguiente empieza con un "Anteriormente…". Si la app se cierra a mitad, se continúa la misma sesión. |
 | Memoria larga | Resumen acumulado (compactación automática) + **RAG** híbrido (embeddings EmbeddingGemma + BM25) + **grafo** de entidades y relaciones que la IA actualiza en cada turno. Puedes importar lore (.txt/.md) y editar el grafo. |
 | Música por situaciones | Biblioteca propia (mp3/ogg/wav/flac…) asignada a situaciones (Combate, Taberna, Misterio…, editables). Menú de situaciones para elegir qué suena; la IA sólo **sugiere** (opcionalmente puede ponerla sola). Fundido cruzado y bajada de volumen cuando hablan las voces. Importar una carpeta con subcarpetas con nombre de situación las asigna solas. |
-| Mapas | Mazmorras, criptas simétricas y cuevas procedurales en estilo pergamino, con salas numeradas y leyenda escrita por la IA. Se generan solos cuando el director entra en un lugar (`[[mapa: …]]`) o a mano. Visor a pantalla completa con zoom. |
+| Estado de juego que lleva la app | Cada personaje tiene su **ficha** (PV, objetos, oro, estados y modificadores de tirada). El director sólo **propone** cambios con etiquetas (`[[pv: Kael -4]]`, `[[objeto: Mira +Llave]]`…) y la app los aplica; el estado real entra en cada prompt, así la IA no "olvida" heridas ni objetos. Botón *Fichas* en la partida para verlas y corregirlas. |
+| Tiradas que resuelve la app | Cuando el director pide `[[tirada: Kael \| Percepción CD 15]]`, aparece una ficha: al tocarla la app tira d20 + el modificador del personaje contra la CD y le envía el resultado con su grado (pifia, fallo, éxito por los pelos, éxito, crítico). Mantener pulsado = tirar a mano. |
+| Grafo con caducidad | Los hechos dejan de ser ciertos: si alguien cambia de sitio, entrega un objeto o muere, el hecho antiguo pasa a *pasado* (con la sesión) en vez de contradecir al nuevo. El archivista de la IA también marca lo que ya no es verdad. En el grafo se ven tachados. |
+| Recuerdos fijados y asuntos pendientes | Chincheta en cualquier mensaje para que el director lo tenga **siempre** presente. Registro de promesas, deudas, amenazas, misiones y pistas que la IA abre y cierra sola (y tú puedes editar). Botón *Mundo* 🌐 en la partida. |
+| El mundo avanza solo | El villano y cada facción tienen un **reloj** (tramas en marcha) que tira dados cada pocos turnos y avanza aunque el grupo no haga nada; si se llena, ocurre su consecuencia y el director la muestra. Postura del grupo ante cada trama y **saltos de tiempo** ("tres semanas después"). |
+| PNJ vivos | Cada PNJ tiene un **objetivo**, una **actitud** hacia el grupo (de −3 enemigo a +3 leal) y recuerda **sólo lo que ha presenciado**. La IA los actualiza tras cada turno; se ajustan en *PNJ y voces*. |
+| Jugar hablando | Botón 🎤 en la partida: hablas, vuelves a pulsar y el texto aparece en la caja. Reconocimiento **local** con Whisper (sherpa-onnx), modelos tiny/base/small descargables en Ajustes. |
+| Mapas | Mazmorras, criptas simétricas, cuevas, **ruinas** (Wave Function Collapse) y **pueblos amurallados** (calles, plaza, casas, río con puentes, campos) en estilo pergamino, con salas numeradas y leyenda escrita por la IA. Se generan solos cuando el director entra en un lugar (`[[mapa: …]]`) o a mano. Visor a pantalla completa con zoom. |
 | Registro de partidas | Pestaña *Registro* por jugador y por tema, lector de sesiones, exportación a Markdown y preguntas a la IA sobre partidas pasadas ("¿qué nos dijo el herrero en la sesión 2?"). Además se escribe en `datos/registros/<Jugador>/<Tema>/<Campaña>/sesion-NN.md`. |
 | Pantalla de partida | Arriba, un panel de imagen; abajo, el texto, a media pantalla cada uno. Asignas una imagen de fondo a cada tipo de lugar (mazmorra, cripta, cueva, castillo, ciudad, taberna, templo, bosque…) y cambia sola cuando el director cambia de lugar (`[[escena: …]]`). También se puede fijar una escena a mano o ver ahí el mapa generado. El panel se oculta con un botón. |
 | Documentación que aprende | Pestaña **Docs**: añade reglamentos, ambientaciones, módulos o apuntes (PDF, Word, EPUB, ODT, HTML, RTF, TXT, Markdown…), para todas las campañas o sólo para una. La IA los trocea en su memoria (RAG): el director los consulta en cada turno y al crear campañas, y puedes preguntarles directamente. Igual en Windows y Android, sin Internet; las copias quedan en `datos/documentos`. |
@@ -91,17 +98,19 @@ El workflow `.github/workflows/build.yml` compila ambos en GitHub Actions en cad
 ```
 lib/
   ai/            motor (llama_service), director, generador de campañas, prompts, parser
-  ai/memory/     RAG, grafo de conocimiento, extractor de hechos
-  voice/         TTS del sistema + sherpa-onnx, paquetes de voces
+  ai/memory/     RAG, grafo de conocimiento (con caducidad), extractor de hechos
+  game/          dados y tiradas, fichas (estado de juego), relojes del mundo
+  voice/         TTS del sistema + sherpa-onnx, paquetes de voces, reconocimiento de voz (Whisper)
   music/         biblioteca y reproductor por situaciones
-  maps/          generador procedimental y renderizado a PNG
+  maps/          generadores (mazmorra, cripta, cueva, ruinas WFC, pueblo) y renderizado a PNG
   logs/          registro en Markdown
   core/          base de datos SQLite, modelos y ajustes
   ui/            pantallas
-test/            pruebas (director, memoria, mapas, parser)
+test/            pruebas (director, memoria, juego, mapas, parser)
 ```
 
 ## Formato que usa el director
 
 - Diálogo de PNJ: una línea `@Nombre: lo que dice` (así se asigna su voz).
-- Etiquetas ocultas: `[[musica: Combate]]`, `[[mapa: cueva | Gruta del Eco]]`, `[[tirada: Sigilo CD 14]]`, `[[lugar: …]]`, `[[acto: 2]]`.
+- Etiquetas ocultas: `[[musica: Combate]]`, `[[mapa: cueva | Gruta del Eco]]`, `[[tirada: Kael | Sigilo CD 14]]`, `[[lugar: …]]`, `[[acto: 2]]`.
+- Estado (lo aplica la app): `[[pv: Kael -4]]`, `[[objeto: Mira +Llave negra]]`, `[[oro: Kael +20]]`, `[[estado: Kael +envenenado]]`, `[[actitud: Bran +1]]`, `[[pendiente: promesa | …]]`, `[[resuelto: …]]`, `[[tiempo: 3 días]]`.
