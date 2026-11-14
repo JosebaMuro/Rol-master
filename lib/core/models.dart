@@ -42,7 +42,7 @@ class Campaign {
     this.location = '',
     DateTime? createdAt,
     DateTime? updatedAt,
-  })  : bible = bible ?? <String, dynamic>{},
+  })  : bible = bible == null ? <String, dynamic>{} : Map<String, dynamic>.of(bible),
         createdAt = createdAt ?? DateTime.now(),
         updatedAt = updatedAt ?? DateTime.now();
 

@@ -34,6 +34,7 @@ class ParsedNarration {
     this.rolls = const [],
     this.act,
     this.location,
+    this.scene,
   });
   final String cleanText;
   final List<NarrationSegment> segments;
@@ -42,6 +43,8 @@ class ParsedNarration {
   final List<String> rolls;
   final int? act;
   final String? location;
+  /// Tipo de escena para el fondo (castillo, cueva…).
+  final String? scene;
 
   Set<String> get speakers => {for (final s in segments) if (s.speaker != null) s.speaker!};
 }
@@ -55,6 +58,7 @@ ParsedNarration parseNarration(String raw) {
   MapRequest? map;
   int? act;
   String? location;
+  String? scene;
   final rolls = <String>[];
 
   var text = raw.replaceAll(RegExp(r'<think>[\s\S]*?</think>'), '');
@@ -76,6 +80,8 @@ ParsedNarration parseNarration(String raw) {
         act = int.tryParse(RegExp(r'\d+').firstMatch(value)?.group(0) ?? '');
       case 'lugar' || 'location':
         location = value;
+      case 'escena' || 'scene':
+        scene = value;
     }
     return '';
   });
@@ -114,6 +120,7 @@ ParsedNarration parseNarration(String raw) {
     rolls: rolls,
     act: act,
     location: location,
+    scene: scene,
   );
 }
 

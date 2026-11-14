@@ -94,6 +94,14 @@ class AppSettings extends ChangeNotifier {
   bool get showThinking => _prefs.getBool('showThinking') ?? false;
   set showThinking(bool v) => _set('showThinking', v);
 
+  // ---- Panel gráfico de la partida
+  bool get showScenePanel => _prefs.getBool('showScenePanel') ?? true;
+  set showScenePanel(bool v) => _set('showScenePanel', v);
+
+  /// Imagen de fondo (ruta guardada) para un tipo de escena; '' = ninguna.
+  String sceneBackground(String sceneId) => _s('fondo_$sceneId', '');
+  void setSceneBackground(String sceneId, String storedPath) => _set('fondo_$sceneId', storedPath);
+
   // ---- Voces
   bool get voiceEnabled => _prefs.getBool('voiceEnabled') ?? true;
   set voiceEnabled(bool v) => _set('voiceEnabled', v);

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../core/scenes.dart';
 
 import '../core/models.dart';
 
@@ -27,6 +28,7 @@ FORMATO OBLIGATORIO
   [[mapa: TIPO | Título]]  cuando los jugadores entren en un lugar que merezca mapa. TIPO: mazmorra, cueva o cripta.
   [[tirada: Habilidad CD número]]  cuando pidas una tirada.
   [[lugar: Nombre del lugar]]  cuando los personajes cambien de lugar.
+  [[escena: TIPO]]  junto a [[lugar]], para el fondo de pantalla. TIPO: ${Scenes.kinds.map((k) => k.id).join(', ')}.
   [[acto: número]]  cuando la historia pase al siguiente acto.
 ''';
 

@@ -8,9 +8,11 @@ import 'package:provider/provider.dart';
 import '../ai/llama_service.dart';
 import '../ai/model_catalog.dart';
 import '../app_services.dart';
+import '../core/scenes.dart';
 import '../core/settings.dart';
 import '../voice/voice_packs.dart';
 import 'widgets/file_utils.dart';
+import 'widgets/scene_panel.dart';
 import 'widgets/voice_editor.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -242,6 +244,51 @@ class SettingsScreen extends StatelessWidget {
           title: const Text('Bajar la música cuando hablan las voces'),
           value: st.duckMusic,
           onChanged: (v) => st.duckMusic = v,
+        ),
+
+        header('Pantalla de partida'),
+        SwitchListTile(
+          title: const Text('Panel de imagen arriba y texto abajo'),
+          subtitle: const Text('Media pantalla cada uno. El fondo cambia solo según el tipo de lugar.'),
+          value: st.showScenePanel,
+          onChanged: (v) => st.showScenePanel = v,
+        ),
+        ExpansionTile(
+          leading: const Icon(Icons.wallpaper),
+          title: const Text('Fondos por tipo de lugar'),
+          subtitle: Text('${Scenes.kinds.where((k) => sceneBackgroundFile(s, k.id) != null).length} de ${Scenes.kinds.length} con imagen'),
+          children: [
+            for (final k in Scenes.kinds)
+              Builder(builder: (context) {
+                final f = sceneBackgroundFile(s, k.id);
+                return ListTile(
+                  leading: SizedBox(
+                    width: 64,
+                    height: 40,
+                    child: f == null
+                        ? Center(child: Text(k.icon, style: const TextStyle(fontSize: 24)))
+                        : ClipRRect(borderRadius: BorderRadius.circular(4), child: Image.file(f, fit: BoxFit.cover)),
+                  ),
+                  title: Text(k.name),
+                  subtitle: Text(f == null ? 'Sin imagen' : p.basename(f.path)),
+                  onTap: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    try {
+                      await pickSceneBackground(context, k);
+                    } catch (e) {
+                      messenger.showSnackBar(SnackBar(content: Text('No se pudo usar la imagen: $e')));
+                    }
+                  },
+                  trailing: f == null
+                      ? const Icon(Icons.add_photo_alternate)
+                      : IconButton(
+                          tooltip: 'Quitar',
+                          icon: const Icon(Icons.delete_outline),
+                          onPressed: () => removeSceneBackground(s, k),
+                        ),
+                );
+              }),
+          ],
         ),
 
         header('Datos'),

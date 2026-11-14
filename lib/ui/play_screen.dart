@@ -14,6 +14,7 @@ import '../voice/voice_service.dart';
 import 'map_viewer.dart';
 import 'widgets/music_bar.dart';
 import 'widgets/rich_message.dart';
+import 'widgets/scene_panel.dart';
 
 /// Mesa de juego: chat con el director, voces, música, mapas y tiradas.
 class PlayScreen extends StatefulWidget {
@@ -41,6 +42,7 @@ class _PlayScreenState extends State<PlayScreen> {
   String? _musicSuggestion;
   List<String> _pendingRolls = [];
   MapRecord? _lastMap;
+  bool _showMap = false;
   bool _ending = false;
 
   @override
@@ -48,6 +50,7 @@ class _PlayScreenState extends State<PlayScreen> {
     super.initState();
     s = context.read<AppServices>();
     campaign = s.db.campaign(widget.campaignId)!;
+    _lastMap = s.db.maps(campaignId: campaign.id).firstOrNull;
     players = s.db.campaignPlayers(campaign.id!);
     _speaker = players.isEmpty ? 'Jugador' : _label(players.first);
     director = s.director();
@@ -81,8 +84,7 @@ class _PlayScreenState extends State<PlayScreen> {
   void _toBottom() {
     Future.delayed(const Duration(milliseconds: 60), () {
       if (_scroll.hasClients) {
-        _scroll.animateTo(_scroll.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+        _scroll.animateTo(_scroll.position.maxScrollExtent, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
       }
     });
   }
@@ -104,22 +106,12 @@ class _PlayScreenState extends State<PlayScreen> {
       _partial = '';
       _thinking = '';
       _pendingRolls = [];
-      _messages.add(ChatMessage(
-        campaignId: campaign.id!,
-        sessionId: session.id!,
-        role: MessageRole.player,
-        speaker: _speaker,
-        content: text,
-      ));
+      _messages.add(
+        ChatMessage(campaignId: campaign.id!, sessionId: session.id!, role: MessageRole.player, speaker: _speaker, content: text),
+      );
     });
     _toBottom();
-    await _consume(director.playerTurn(
-      campaign: campaign,
-      session: session,
-      speaker: _speaker,
-      text: text,
-      situations: _situationNames,
-    ));
+    await _consume(director.playerTurn(campaign: campaign, session: session, speaker: _speaker, text: text, situations: _situationNames));
   }
 
   Future<void> _regenerate() async {
@@ -175,14 +167,21 @@ class _PlayScreenState extends State<PlayScreen> {
     if (parsed.rolls.isNotEmpty) setState(() => _pendingRolls = parsed.rolls);
     final map = parsed.mapRequest;
     if (map != null) {
-      unawaited(s.maps.create(kind: map.kind, title: map.title, campaign: campaign).then((rec) {
-        if (!mounted) return;
-        setState(() => _lastMap = rec);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Mapa listo: ${rec.title}'),
-          action: SnackBarAction(label: 'Ver', onPressed: () => openMapFullscreen(context, rec)),
-        ));
-      }));
+      unawaited(
+        s.maps.create(kind: map.kind, title: map.title, campaign: campaign).then((rec) {
+          if (!mounted) return;
+          setState(() {
+            _lastMap = rec;
+            _showMap = true;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Mapa listo: ${rec.title}'),
+              action: SnackBarAction(label: 'Ver', onPressed: () => openMapFullscreen(context, rec)),
+            ),
+          );
+        }),
+      );
     }
     _toBottom();
   }
@@ -245,16 +244,21 @@ class _PlayScreenState extends State<PlayScreen> {
       builder: (ctx) => SimpleDialog(
         title: Text(request == null ? 'Tirar dados' : 'Tirada: $request'),
         children: [
-          Wrap(alignment: WrapAlignment.center, spacing: 8, runSpacing: 8, children: [
-            for (final d in [4, 6, 8, 10, 12, 20, 100])
-              ActionChip(
-                label: Text('d$d'),
-                onPressed: () {
-                  final v = 1 + rnd.nextInt(d);
-                  Navigator.pop(ctx, '${request ?? 'Tirada'}: d$d → $v');
-                },
-              ),
-          ]),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final d in [4, 6, 8, 10, 12, 20, 100])
+                ActionChip(
+                  label: Text('d$d'),
+                  onPressed: () {
+                    final v = 1 + rnd.nextInt(d);
+                    Navigator.pop(ctx, '${request ?? 'Tirada'}: d$d → $v');
+                  },
+                ),
+            ],
+          ),
         ],
       ),
     );
@@ -269,30 +273,39 @@ class _PlayScreenState extends State<PlayScreen> {
     showModalBottomSheet(
       context: context,
       showDragHandle: true,
-      builder: (ctx) => ListView(children: [
-        ListTile(
-          leading: const Icon(Icons.add),
-          title: const Text('Generar mapa nuevo'),
-          onTap: () async {
-            Navigator.pop(ctx);
-            final rec = await showCreateMapDialog(context, campaign: campaign);
-            if (rec != null && mounted) {
-              setState(() => _lastMap = rec);
-              openMapFullscreen(context, rec);
-            }
-          },
-        ),
-        for (final m in maps)
+      builder: (ctx) => ListView(
+        children: [
           ListTile(
-            leading: const Icon(Icons.map),
-            title: Text(m.title),
-            subtitle: Text(m.kind),
-            onTap: () {
+            leading: const Icon(Icons.add),
+            title: const Text('Generar mapa nuevo'),
+            onTap: () async {
               Navigator.pop(ctx);
-              openMapFullscreen(context, m);
+              final rec = await showCreateMapDialog(context, campaign: campaign);
+              if (rec != null && mounted) {
+                setState(() {
+                  _lastMap = rec;
+                  _showMap = true;
+                });
+                openMapFullscreen(context, rec);
+              }
             },
           ),
-      ]),
+          for (final m in maps)
+            ListTile(
+              leading: const Icon(Icons.map),
+              title: Text(m.title),
+              subtitle: Text(m.kind),
+              onTap: () {
+                Navigator.pop(ctx);
+                setState(() {
+                  _lastMap = m;
+                  _showMap = true;
+                });
+                openMapFullscreen(context, m);
+              },
+            ),
+        ],
+      ),
     );
   }
 
@@ -312,13 +325,16 @@ class _PlayScreenState extends State<PlayScreen> {
     final act = campaign.acts.isEmpty ? '' : ' · Acto ${campaign.currentAct + 1}';
     return Scaffold(
       appBar: AppBar(
-        title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(campaign.title, overflow: TextOverflow.ellipsis),
-          Text(
-            'Sesión ${session.number}$act${campaign.location.isEmpty ? '' : ' · ${campaign.location}'}',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-        ]),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(campaign.title, overflow: TextOverflow.ellipsis),
+            Text(
+              'Sesión ${session.number}$act${campaign.location.isEmpty ? '' : ' · ${campaign.location}'}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
         actions: [
           IconButton(
             tooltip: settings.voiceEnabled ? 'Silenciar voces' : 'Activar voces',
@@ -333,60 +349,95 @@ class _PlayScreenState extends State<PlayScreen> {
             icon: Icon(settings.thinking ? Icons.psychology : Icons.psychology_outlined),
             onPressed: () => settings.thinking = !settings.thinking,
           ),
+          IconButton(
+            tooltip: settings.showScenePanel ? 'Ocultar panel de imagen' : 'Mostrar panel de imagen',
+            icon: Icon(settings.showScenePanel ? Icons.vertical_split : Icons.view_agenda_outlined),
+            onPressed: () => settings.showScenePanel = !settings.showScenePanel,
+          ),
           IconButton(tooltip: 'Mapas', icon: const Icon(Icons.map), onPressed: _showMaps),
           IconButton(tooltip: 'Terminar sesión', icon: const Icon(Icons.flag), onPressed: _ending ? null : _endSession),
         ],
       ),
-      body: Column(children: [
-        MusicBar(suggestion: _musicSuggestion, onDismissSuggestion: () => setState(() => _musicSuggestion = null)),
-        if (voices.speaking)
-          Material(
-            color: Theme.of(context).colorScheme.secondaryContainer,
-            child: ListTile(
-              dense: true,
-              leading: const Icon(Icons.graphic_eq),
-              title: Text(voices.currentSpeaker == null ? 'Narrando…' : '${voices.currentSpeaker} habla…'),
-              trailing: IconButton(icon: const Icon(Icons.stop), onPressed: voices.stop),
+      body: Column(
+        children: [
+          MusicBar(suggestion: _musicSuggestion, onDismissSuggestion: () => setState(() => _musicSuggestion = null)),
+          if (_ending) const LinearProgressIndicator(),
+          if (settings.showScenePanel)
+            // Mitad superior: gráficos (fondo de la escena o mapa).
+            Expanded(
+              child: ScenePanel(
+                campaign: campaign,
+                map: _lastMap,
+                showMap: _showMap,
+                onToggleMap: () => setState(() => _showMap = !_showMap),
+                onCampaignChanged: () => setState(() => campaign = s.db.campaign(campaign.id!)!),
+                overlay: voices.speaking ? _speakingBar(voices, translucent: true) : null,
+              ),
+            )
+          else if (voices.speaking)
+            _speakingBar(voices),
+          // Mitad inferior: texto de la partida.
+          Expanded(
+            child: Column(
+              children: [
+                Expanded(
+                  child: ListView.builder(
+                    controller: _scroll,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    itemCount: _messages.length + (_generating ? 1 : 0),
+                    itemBuilder: (context, i) {
+                      if (i == _messages.length) {
+                        return MessageBubble.streaming(text: _partial, thinking: _thinking, showThinking: settings.showThinking);
+                      }
+                      final m = _messages[i];
+                      return MessageBubble(
+                        message: m,
+                        showThinking: settings.showThinking,
+                        onSpeak: m.role == MessageRole.player ? null : () => _speak(m),
+                      );
+                    },
+                  ),
+                ),
+                if (_pendingRolls.isNotEmpty || _lastMap != null)
+                  SizedBox(
+                    height: 48,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      children: [
+                        for (final r in _pendingRolls)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: ActionChip(avatar: const Icon(Icons.casino, size: 18), label: Text(r), onPressed: () => _rollDialog(r)),
+                          ),
+                        if (_lastMap != null)
+                          ActionChip(
+                            avatar: const Icon(Icons.fullscreen, size: 18),
+                            label: Text(_lastMap!.title),
+                            onPressed: () => openMapFullscreen(context, _lastMap!),
+                          ),
+                      ],
+                    ),
+                  ),
+                _inputBar(llm),
+              ],
             ),
           ),
-        if (_ending) const LinearProgressIndicator(),
-        Expanded(
-          child: ListView.builder(
-            controller: _scroll,
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: _messages.length + (_generating ? 1 : 0),
-            itemBuilder: (context, i) {
-              if (i == _messages.length) {
-                return MessageBubble.streaming(text: _partial, thinking: _thinking, showThinking: settings.showThinking);
-              }
-              final m = _messages[i];
-              return MessageBubble(
-                message: m,
-                showThinking: settings.showThinking,
-                onSpeak: m.role == MessageRole.player ? null : () => _speak(m),
-              );
-            },
-          ),
-        ),
-        if (_pendingRolls.isNotEmpty || _lastMap != null)
-          SizedBox(
-            height: 48,
-            child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 8), children: [
-              for (final r in _pendingRolls)
-                Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: ActionChip(avatar: const Icon(Icons.casino, size: 18), label: Text(r), onPressed: () => _rollDialog(r)),
-                ),
-              if (_lastMap != null)
-                ActionChip(
-                  avatar: const Icon(Icons.fullscreen, size: 18),
-                  label: Text(_lastMap!.title),
-                  onPressed: () => openMapFullscreen(context, _lastMap!),
-                ),
-            ]),
-          ),
-        _inputBar(llm),
-      ]),
+        ],
+      ),
+    );
+  }
+
+  Widget _speakingBar(VoiceService voices, {bool translucent = false}) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: translucent ? scheme.secondaryContainer.withValues(alpha: 0.85) : scheme.secondaryContainer,
+      child: ListTile(
+        dense: true,
+        leading: const Icon(Icons.graphic_eq),
+        title: Text(voices.currentSpeaker == null ? 'Narrando…' : '${voices.currentSpeaker} habla…'),
+        trailing: IconButton(icon: const Icon(Icons.stop), onPressed: voices.stop),
+      ),
     );
   }
 
@@ -395,55 +446,63 @@ class _PlayScreenState extends State<PlayScreen> {
       top: false,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          if (players.length > 1)
-            SizedBox(
-              height: 40,
-              child: ListView(scrollDirection: Axis.horizontal, children: [
-                for (final p in players)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: ChoiceChip(
-                      label: Text(_label(p)),
-                      selected: _speaker == _label(p),
-                      onSelected: (_) => setState(() => _speaker = _label(p)),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (players.length > 1)
+              SizedBox(
+                height: 40,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: [
+                    for (final p in players)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: ChoiceChip(
+                          label: Text(_label(p)),
+                          selected: _speaker == _label(p),
+                          onSelected: (_) => setState(() => _speaker = _label(p)),
+                        ),
+                      ),
+                    ChoiceChip(
+                      label: const Text('Grupo'),
+                      selected: _speaker == 'Grupo',
+                      onSelected: (_) => setState(() => _speaker = 'Grupo'),
+                    ),
+                  ],
+                ),
+              ),
+            Row(
+              children: [
+                IconButton(tooltip: 'Tirar dados', icon: const Icon(Icons.casino), onPressed: () => _rollDialog()),
+                Expanded(
+                  child: TextField(
+                    controller: _input,
+                    minLines: 1,
+                    maxLines: 5,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _send(),
+                    decoration: InputDecoration(
+                      hintText: '¿Qué hace $_speaker?',
+                      isDense: true,
+                      border: const OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(24))),
                     ),
                   ),
-                ChoiceChip(
-                  label: const Text('Grupo'),
-                  selected: _speaker == 'Grupo',
-                  onSelected: (_) => setState(() => _speaker = 'Grupo'),
                 ),
-              ]),
+                if (_generating)
+                  IconButton(tooltip: 'Detener', icon: const Icon(Icons.stop_circle), onPressed: llm.cancel)
+                else ...[
+                  IconButton(
+                    tooltip: 'Repetir la última respuesta',
+                    icon: const Icon(Icons.refresh),
+                    onPressed: _messages.isNotEmpty ? _regenerate : null,
+                  ),
+                  IconButton.filled(icon: const Icon(Icons.send), onPressed: llm.isReady ? _send : null),
+                ],
+              ],
             ),
-          Row(children: [
-            IconButton(tooltip: 'Tirar dados', icon: const Icon(Icons.casino), onPressed: () => _rollDialog()),
-            Expanded(
-              child: TextField(
-                controller: _input,
-                minLines: 1,
-                maxLines: 5,
-                textInputAction: TextInputAction.send,
-                onSubmitted: (_) => _send(),
-                decoration: InputDecoration(
-                  hintText: '¿Qué hace $_speaker?',
-                  isDense: true,
-                  border: const OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(24))),
-                ),
-              ),
-            ),
-            if (_generating)
-              IconButton(tooltip: 'Detener', icon: const Icon(Icons.stop_circle), onPressed: llm.cancel)
-            else ...[
-              IconButton(
-                tooltip: 'Repetir la última respuesta',
-                icon: const Icon(Icons.refresh),
-                onPressed: _messages.isNotEmpty ? _regenerate : null,
-              ),
-              IconButton.filled(icon: const Icon(Icons.send), onPressed: llm.isReady ? _send : null),
-            ],
-          ]),
-        ]),
+          ],
+        ),
       ),
     );
   }

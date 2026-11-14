@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../core/db.dart';
 import '../core/models.dart';
+import '../core/scenes.dart';
 import 'llm.dart';
 import 'memory/extractor.dart';
 import 'memory/graph.dart';
@@ -219,6 +220,13 @@ class Director {
     if (p.location != null && p.location!.isNotEmpty && p.location != c.location) {
       c.location = p.location!;
       graph.addEntity(c.id!, c.location, type: 'lugar');
+      changed = true;
+    }
+    // Escena para el fondo: la etiqueta explícita o, si no, deducida del lugar.
+    final scene = Scenes.byId(p.scene) ?? (p.location != null ? Scenes.detect(p.location!) : null) ??
+        (p.mapRequest != null ? Scenes.detect(p.mapRequest!.kind) : null);
+    if (scene != null && c.bible[Scenes.bibleKey] != scene.id) {
+      c.bible[Scenes.bibleKey] = scene.id;
       changed = true;
     }
     for (final name in p.speakers) {

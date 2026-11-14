@@ -16,6 +16,7 @@ La IA inventa campañas completas, narra, interpreta a los PNJ con **voces disti
 | Música por situaciones | Biblioteca propia (mp3/ogg/wav/flac…) asignada a situaciones (Combate, Taberna, Misterio…, editables). Menú de situaciones para elegir qué suena; la IA sólo **sugiere** (opcionalmente puede ponerla sola). Fundido cruzado y bajada de volumen cuando hablan las voces. Importar una carpeta con subcarpetas con nombre de situación las asigna solas. |
 | Mapas | Mazmorras, criptas simétricas y cuevas procedurales en estilo pergamino, con salas numeradas y leyenda escrita por la IA. Se generan solos cuando el director entra en un lugar (`[[mapa: …]]`) o a mano. Visor a pantalla completa con zoom. |
 | Registro de partidas | Pestaña *Registro* por jugador y por tema, lector de sesiones, exportación a Markdown y preguntas a la IA sobre partidas pasadas ("¿qué nos dijo el herrero en la sesión 2?"). Además se escribe en `datos/registros/<Jugador>/<Tema>/<Campaña>/sesion-NN.md`. |
+| Pantalla de partida | Arriba, un panel de imagen; abajo, el texto, a media pantalla cada uno. Asignas una imagen de fondo a cada tipo de lugar (mazmorra, cripta, cueva, castillo, ciudad, taberna, templo, bosque…) y cambia sola cuando el director cambia de lugar (`[[escena: …]]`). También se puede fijar una escena a mano o ver ahí el mapa generado. El panel se oculta con un botón. |
 | Exportar e importar historias | Menú ⋮ de la campaña → *Exportar historia* (con las partidas jugadas o sin jugar, para que otro grupo la empiece) a un único fichero `.rolpack`. En **Campañas** → 📂 se importa como una campaña nueva, con biblia, PNJ y voces, grafo, memoria, mapas y sesiones. |
 
 ## Motores de inferencia incluidos
@@ -49,6 +50,7 @@ datos/
   modelos/         modelos .gguf (descargados o copiados)
   voces/           voces neuronales
   musica/<Situación>/  copias de tus pistas, ordenadas por situación
+  fondos/          imágenes de fondo de cada tipo de lugar
   mapas/           imágenes de los mapas
   registros/       registros de partida en Markdown
   exportaciones/   historias .rolpack y registros exportados
