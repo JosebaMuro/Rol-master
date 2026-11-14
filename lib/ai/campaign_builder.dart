@@ -1,5 +1,7 @@
 import '../core/db.dart';
 import '../core/models.dart';
+import '../game/game_state.dart';
+import '../game/world.dart';
 import 'director.dart';
 import 'llm.dart';
 import 'memory/graph.dart';
@@ -91,6 +93,7 @@ class CampaignBuilder {
         description: '${_s(n['role'])}. ${_s(n['personality'])}'.trim(),
         voiceHint: hint,
         voice: voiceAssigner(id, name, hint),
+        goal: _s(n['goal']),
       ));
       graph.addEntity(id, name, type: 'pnj', description: '${_s(n['role'])}. ${_s(n['personality'])} Secreto: ${_s(n['secret'])}');
     }
@@ -105,6 +108,8 @@ class CampaignBuilder {
           name: _s(villain['name']),
           description: 'Antagonista. ${_s(villain['motivation'])}',
           voice: voiceAssigner(id, _s(villain['name']), 'villano, grave'),
+          goal: _s(villain['plan']),
+          attitude: -3,
         ));
       }
     }
@@ -142,6 +147,10 @@ class CampaignBuilder {
       lore.writeln('\nFacción ${_s(f['name'])}: ${_s(f['goal'])}');
     }
     await rag.addText(id, 'biblia', lore.toString());
+
+    onStep?.call('Preparando fichas y las tramas que avanzan solas…');
+    GameState(db).ensureCharacters(id);
+    WorldEngine(db).seed(c);
     return c;
   }
 

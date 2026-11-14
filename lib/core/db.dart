@@ -24,7 +24,7 @@ class AppDatabase {
   String _store(String path) => root?.toStored(path) ?? path;
   String _resolve(String path) => root?.resolve(path) ?? path;
 
-  static const int schemaVersion = 2;
+  static const int schemaVersion = 3;
 
   void _migrate() {
     db.execute('PRAGMA foreign_keys = ON');
@@ -156,6 +156,54 @@ CREATE TABLE IF NOT EXISTS doc_chunks (
   embedding BLOB
 );
 CREATE INDEX IF NOT EXISTS idx_doc_chunks_doc ON doc_chunks(doc_id);
+''');
+    }
+    if (v < 3) {
+      // Estado de juego que lleva la app, grafo con caducidad, PNJ vivos y
+      // mundo que avanza solo.
+      db.execute('''
+CREATE TABLE IF NOT EXISTS char_states (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  norm TEXT NOT NULL,
+  data TEXT NOT NULL DEFAULT '{}',
+  UNIQUE (campaign_id, norm)
+);
+CREATE TABLE IF NOT EXISTS pins (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS plot_threads (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL DEFAULT 'pendiente',
+  text TEXT NOT NULL,
+  norm TEXT NOT NULL DEFAULT '',
+  open INTEGER NOT NULL DEFAULT 1,
+  session INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS world_clocks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  owner TEXT NOT NULL DEFAULT '',
+  segments INTEGER NOT NULL DEFAULT 6,
+  filled INTEGER NOT NULL DEFAULT 0,
+  consequence TEXT NOT NULL DEFAULT '',
+  active INTEGER NOT NULL DEFAULT 1,
+  stance TEXT NOT NULL DEFAULT 'desconocen'
+);
+ALTER TABLE relations ADD COLUMN ended INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE relations ADD COLUMN since_session INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE relations ADD COLUMN until_session INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE npcs ADD COLUMN goal TEXT NOT NULL DEFAULT '';
+ALTER TABLE npcs ADD COLUMN attitude INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE npcs ADD COLUMN knows TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE npcs ADD COLUMN last_seen INTEGER NOT NULL DEFAULT 0;
 ''');
     }
     if (v < schemaVersion) db.execute('PRAGMA user_version = $schemaVersion');
@@ -378,18 +426,35 @@ CREATE INDEX IF NOT EXISTS idx_doc_chunks_doc ON doc_chunks(doc_id);
     if (existing != null) {
       n.id = existing.id;
       db.execute(
-        'UPDATE npcs SET description = ?, voice_hint = ?, voice = ? WHERE id = ?',
-        [n.description.isEmpty ? existing.description : n.description, n.voiceHint.isEmpty ? existing.voiceHint : n.voiceHint, n.voice.encode(), n.id],
+        'UPDATE npcs SET description = ?, voice_hint = ?, voice = ?, goal = ? WHERE id = ?',
+        [
+          n.description.isEmpty ? existing.description : n.description,
+          n.voiceHint.isEmpty ? existing.voiceHint : n.voiceHint,
+          n.voice.encode(),
+          n.goal.isEmpty ? existing.goal : n.goal,
+          n.id,
+        ],
       );
+      n
+        ..attitude = existing.attitude
+        ..knows = existing.knows
+        ..lastSeen = existing.lastSeen
+        ..goal = n.goal.isEmpty ? existing.goal : n.goal;
       return n;
     }
     db.execute(
-      'INSERT INTO npcs (campaign_id, name, description, voice_hint, voice) VALUES (?, ?, ?, ?, ?)',
-      [n.campaignId, n.name, n.description, n.voiceHint, n.voice.encode()],
+      'INSERT INTO npcs (campaign_id, name, description, voice_hint, voice, goal, attitude, knows, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [n.campaignId, n.name, n.description, n.voiceHint, n.voice.encode(), n.goal, n.attitude, jsonEncode(n.knows), n.lastSeen],
     );
     n.id = db.lastInsertRowId;
     return n;
   }
+
+  /// Guarda lo que cambia durante la partida: objetivo, actitud y recuerdos.
+  void updateNpcState(Npc n) => db.execute(
+        'UPDATE npcs SET goal = ?, attitude = ?, knows = ?, last_seen = ? WHERE id = ?',
+        [n.goal, n.attitude.clamp(-3, 3), jsonEncode(n.knows), n.lastSeen, n.id],
+      );
 
   void deleteNpc(int id) => db.execute('DELETE FROM npcs WHERE id = ?', [id]);
 
@@ -445,20 +510,42 @@ CREATE INDEX IF NOT EXISTS idx_doc_chunks_doc ON doc_chunks(doc_id);
       .map(Entity.fromRow)
       .toList();
 
-  void addRelation(int campaignId, int sourceId, String relation, int targetId) {
-    if (sourceId == targetId) return;
-    db.execute(
-      'INSERT OR IGNORE INTO relations (campaign_id, source_id, relation, target_id) VALUES (?, ?, ?, ?)',
+  /// Añade un hecho. Si ya existía pero había caducado, vuelve a ser cierto.
+  /// Devuelve el id de la relación (o null si no es válida).
+  int? addRelation(int campaignId, int sourceId, String relation, int targetId, {int session = 0}) {
+    if (sourceId == targetId || relation.trim().isEmpty) return null;
+    final r = db.select(
+      'SELECT id, ended FROM relations WHERE campaign_id = ? AND source_id = ? AND relation = ? AND target_id = ?',
       [campaignId, sourceId, relation.trim(), targetId],
     );
+    if (r.isNotEmpty) {
+      final id = r.first['id'] as int;
+      if (r.first['ended'] == 1) {
+        db.execute('UPDATE relations SET ended = 0, since_session = ?, until_session = 0 WHERE id = ?', [session, id]);
+      }
+      return id;
+    }
+    db.execute(
+      'INSERT INTO relations (campaign_id, source_id, relation, target_id, since_session) VALUES (?, ?, ?, ?, ?)',
+      [campaignId, sourceId, relation.trim(), targetId, session],
+    );
+    return db.lastInsertRowId;
   }
+
+  /// Marca un hecho como pasado: ya no es cierto, pero se recuerda que lo fue.
+  void endRelation(int id, {int session = 0}) =>
+      db.execute('UPDATE relations SET ended = 1, until_session = ? WHERE id = ? AND ended = 0', [session, id]);
+
+  void reopenRelation(int id) => db.execute('UPDATE relations SET ended = 0, until_session = 0 WHERE id = ?', [id]);
 
   void deleteRelation(int id) => db.execute('DELETE FROM relations WHERE id = ?', [id]);
 
-  List<Relation> relations(int campaignId, {Iterable<int>? touching}) {
+  /// Hechos del grafo. [ended]: null = todos, false = vigentes, true = pasados.
+  List<Relation> relations(int campaignId, {Iterable<int>? touching, bool? ended}) {
     var sql = 'SELECT r.*, s.name AS sname, t.name AS tname FROM relations r '
         'JOIN entities s ON s.id = r.source_id JOIN entities t ON t.id = r.target_id WHERE r.campaign_id = ?';
     final args = <Object?>[campaignId];
+    if (ended != null) sql += ' AND r.ended = ${ended ? 1 : 0}';
     if (touching != null) {
       final ids = touching.toList();
       if (ids.isEmpty) return const [];
@@ -478,9 +565,121 @@ CREATE INDEX IF NOT EXISTS idx_doc_chunks_doc ON doc_chunks(doc_id);
               targetId: r['target_id'] as int,
               sourceName: r['sname'] as String,
               targetName: r['tname'] as String,
+              ended: r['ended'] == 1,
+              sinceSession: (r['since_session'] as int?) ?? 0,
+              untilSession: (r['until_session'] as int?) ?? 0,
             ))
         .toList();
   }
+
+  // ------------------------------------------------------- estado de juego
+  List<CharacterState> charStates(int campaignId) => db
+      .select('SELECT * FROM char_states WHERE campaign_id = ? ORDER BY id', [campaignId])
+      .map((r) => CharacterState.fromJson(campaignId, r['name'] as String, _json(r['data'] as String?), id: r['id'] as int))
+      .toList();
+
+  CharacterState? charState(int campaignId, String name) {
+    final r = db.select('SELECT * FROM char_states WHERE campaign_id = ? AND norm = ?', [campaignId, normalize(name)]);
+    if (r.isEmpty) return null;
+    return CharacterState.fromJson(campaignId, r.first['name'] as String, _json(r.first['data'] as String?), id: r.first['id'] as int);
+  }
+
+  CharacterState saveCharState(CharacterState c) {
+    final data = jsonEncode(c.toJson());
+    if (c.id != null) {
+      db.execute('UPDATE char_states SET name = ?, norm = ?, data = ? WHERE id = ?', [c.name, normalize(c.name), data, c.id]);
+    } else {
+      db.execute(
+        'INSERT INTO char_states (campaign_id, name, norm, data) VALUES (?, ?, ?, ?) '
+        'ON CONFLICT(campaign_id, norm) DO UPDATE SET data = excluded.data, name = excluded.name',
+        [c.campaignId, c.name, normalize(c.name), data],
+      );
+      c.id = db.select('SELECT id FROM char_states WHERE campaign_id = ? AND norm = ?', [c.campaignId, normalize(c.name)]).first['id'] as int;
+    }
+    return c;
+  }
+
+  void deleteCharState(int id) => db.execute('DELETE FROM char_states WHERE id = ?', [id]);
+
+  static Map<String, dynamic> _json(String? s) {
+    if (s == null || s.isEmpty) return {};
+    try {
+      final v = jsonDecode(s);
+      return v is Map ? v.cast<String, dynamic>() : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  // ----------------------------------------------------- recuerdos fijados
+  List<PinnedMemory> pins(int campaignId) => db
+      .select('SELECT * FROM pins WHERE campaign_id = ? ORDER BY id', [campaignId])
+      .map(PinnedMemory.fromRow)
+      .toList();
+
+  PinnedMemory addPin(PinnedMemory p) {
+    db.execute('INSERT INTO pins (campaign_id, text, created_at) VALUES (?, ?, ?)',
+        [p.campaignId, p.text, p.createdAt.toIso8601String()]);
+    p.id = db.lastInsertRowId;
+    return p;
+  }
+
+  void updatePin(PinnedMemory p) => db.execute('UPDATE pins SET text = ? WHERE id = ?', [p.text, p.id]);
+  void deletePin(int id) => db.execute('DELETE FROM pins WHERE id = ?', [id]);
+
+  // ------------------------------------------------------ asuntos pendientes
+  List<PlotThread> plotThreads(int campaignId, {bool? open}) => db
+      .select(
+        'SELECT * FROM plot_threads WHERE campaign_id = ?${open == null ? '' : ' AND open = ${open ? 1 : 0}'} ORDER BY open DESC, id',
+        [campaignId],
+      )
+      .map(PlotThread.fromRow)
+      .toList();
+
+  /// Añade un asunto si no hay ya uno abierto igual. Devuelve null si existía.
+  PlotThread? addPlotThread(PlotThread t) {
+    final norm = normalize(t.text);
+    if (norm.isEmpty) return null;
+    final dup = db.select('SELECT id FROM plot_threads WHERE campaign_id = ? AND norm = ? AND open = 1', [t.campaignId, norm]);
+    if (dup.isNotEmpty) return null;
+    db.execute(
+      'INSERT INTO plot_threads (campaign_id, kind, text, norm, open, session, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [t.campaignId, t.kind, t.text, norm, t.open ? 1 : 0, t.session, t.createdAt.toIso8601String()],
+    );
+    t.id = db.lastInsertRowId;
+    return t;
+  }
+
+  void updatePlotThread(PlotThread t) => db.execute(
+        'UPDATE plot_threads SET kind = ?, text = ?, norm = ?, open = ? WHERE id = ?',
+        [t.kind, t.text, normalize(t.text), t.open ? 1 : 0, t.id],
+      );
+
+  void deletePlotThread(int id) => db.execute('DELETE FROM plot_threads WHERE id = ?', [id]);
+
+  // ---------------------------------------------------------- relojes del mundo
+  List<WorldClock> clocks(int campaignId, {bool onlyActive = false}) => db
+      .select('SELECT * FROM world_clocks WHERE campaign_id = ?${onlyActive ? ' AND active = 1' : ''} ORDER BY id', [campaignId])
+      .map(WorldClock.fromRow)
+      .toList();
+
+  WorldClock saveClock(WorldClock c) {
+    if (c.id == null) {
+      db.execute(
+        'INSERT INTO world_clocks (campaign_id, name, owner, segments, filled, consequence, active, stance) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [c.campaignId, c.name, c.owner, c.segments, c.filled, c.consequence, c.active ? 1 : 0, c.stance],
+      );
+      c.id = db.lastInsertRowId;
+    } else {
+      db.execute(
+        'UPDATE world_clocks SET name = ?, owner = ?, segments = ?, filled = ?, consequence = ?, active = ?, stance = ? WHERE id = ?',
+        [c.name, c.owner, c.segments, c.filled, c.consequence, c.active ? 1 : 0, c.stance, c.id],
+      );
+    }
+    return c;
+  }
+
+  void deleteClock(int id) => db.execute('DELETE FROM world_clocks WHERE id = ?', [id]);
 
   // ------------------------------------------------------------------ chunks
   static Uint8List encodeVector(List<double> v) => Float32List.fromList(v).buffer.asUint8List();

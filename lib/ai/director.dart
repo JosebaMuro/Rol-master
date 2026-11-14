@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import '../core/db.dart';
 import '../core/models.dart';
 import '../core/scenes.dart';
+import '../game/game_state.dart';
+import '../game/world.dart';
 import 'llm.dart';
 import 'memory/extractor.dart';
 import 'memory/graph.dart';
@@ -26,9 +28,12 @@ class DirectorPartial extends DirectorEvent {
 }
 
 class DirectorDone extends DirectorEvent {
-  DirectorDone(this.message, this.parsed);
+  DirectorDone(this.message, this.parsed, [this.notes = const []]);
   final ChatMessage message;
   final ParsedNarration parsed;
+
+  /// Lo que la app ha aplicado tras la respuesta (PV, objetos, relojes…).
+  final List<String> notes;
 }
 
 typedef VoiceAssigner = VoiceProfile Function(int campaignId, String name, String hint);
@@ -41,8 +46,11 @@ class DirectorConfig {
     this.thinking = true,
     this.thinkingBudget = 768,
     this.contextSize = 8192,
+    this.worldEvery = 4,
   });
   final double temperature;
+  /// Cada cuántos turnos avanza el mundo por su cuenta (0 = nunca).
+  final int worldEvery;
   final int maxTokens;
   final bool thinking;
   final int thinkingBudget;
@@ -60,14 +68,27 @@ class Director {
     required this.config,
     required this.voiceAssigner,
     this.onMessageSaved,
-  }) : extractor = MemoryExtractor(db, llm, graph);
+    GameState? state,
+    WorldEngine? world,
+  })  : extractor = MemoryExtractor(db, llm, graph),
+        state = state ?? GameState(db),
+        world = world ?? WorldEngine(db);
 
   final AppDatabase db;
   final TextGenerator llm;
   final RagMemory rag;
   final KnowledgeGraph graph;
   final MemoryExtractor extractor;
+  final GameState state;
+  final WorldEngine world;
   DirectorConfig config;
+
+  /// Notas del archivista que llegan en segundo plano tras cada turno.
+  final _archive = StreamController<List<String>>.broadcast();
+  Stream<List<String>> get archiveNotes => _archive.stream;
+
+  /// Nombre con el que se guardan las notas de la mesa en el registro.
+  static const tableSpeaker = 'Mesa';
   final VoiceAssigner voiceAssigner;
   final void Function(ChatMessage m)? onMessageSaved;
 
@@ -78,6 +99,8 @@ class Director {
   static const _memoryPointerKey = '_memoryUpTo';
   static const _compactEvery = 24;
 
+  static final _none = ChatMessage(campaignId: 0, sessionId: 0, role: MessageRole.system, content: '');
+
   ChatMessage _save(ChatMessage m) {
     db.addMessage(m);
     onMessageSaved?.call(m);
@@ -87,6 +110,7 @@ class Director {
   /// Empieza una sesión nueva de la campaña. Si es la primera, el director
   /// abre con la escena inicial de la biblia; si no, recuerda dónde se quedó.
   GameSession startSession(Campaign c) {
+    prepare(c);
     final previous = db.lastSession(c.id!);
     final s = db.startSession(c.id!);
     if (previous == null) {
@@ -113,6 +137,33 @@ class Director {
       }
     }
     return s;
+  }
+
+  /// Fichas de los personajes y relojes del mundo (también para campañas
+  /// creadas antes de que existieran).
+  void prepare(Campaign c) {
+    state.ensureCharacters(c.id!);
+    world.seed(c);
+  }
+
+  /// Guarda una nota de la mesa (cambios de estado, mundo…) en la sesión.
+  ChatMessage? tableNote(Campaign c, GameSession s, List<String> notes) {
+    if (notes.isEmpty) return null;
+    return _save(ChatMessage(
+      campaignId: c.id!,
+      sessionId: s.id!,
+      role: MessageRole.system,
+      speaker: tableSpeaker,
+      content: notes.join('\n'),
+    ));
+  }
+
+  /// Salto de tiempo pedido por el grupo: el mundo avanza y el director lo
+  /// tendrá en cuenta en su próxima respuesta.
+  List<String> skipTime(Campaign c, GameSession s, int days) {
+    final notes = ['⌛ Pasan ${WorldEngine.describeDays(days)}.', ...world.timeSkip(c, days)];
+    tableNote(c, s, notes);
+    return notes;
   }
 
   String _fallbackRecap(int campaignId) {
@@ -147,11 +198,13 @@ class Director {
     required List<String> situations,
   }) async* {
     await _background;
-    final recent = db.recentMessages(campaign.id!, limit: 2);
-    if (recent.isEmpty) return;
-    if (recent.last.role == MessageRole.gm) db.deleteMessage(recent.last.id!);
-    final lastPlayer = db.recentMessages(campaign.id!, limit: 1).lastOrNull;
-    if (lastPlayer == null || lastPlayer.role != MessageRole.player) return;
+    final recent = db.recentMessages(campaign.id!, limit: 12);
+    final lastPlayer = recent.lastWhere((m) => m.role == MessageRole.player, orElse: () => recent.isEmpty ? _none : recent.first);
+    if (lastPlayer.role != MessageRole.player) return;
+    // Borra la respuesta anterior y las notas de la mesa que la siguieron.
+    for (final m in recent.where((m) => m.id! > lastPlayer.id!)) {
+      db.deleteMessage(m.id!);
+    }
     yield* _respond(campaign, session, situations, lastPlayer);
   }
 
@@ -203,9 +256,48 @@ class Director {
     ));
 
     _applyState(campaign, parsed);
-    yield DirectorDone(gm, parsed);
+    final notes = _applyGame(campaign, session, parsed, gm);
+    yield DirectorDone(gm, parsed, notes);
 
-    _background = _afterTurn(campaign, playerMsg, gm);
+    _background = _afterTurn(campaign, session, playerMsg, gm, parsed.speakers);
+  }
+
+  /// La app aplica lo que el director propone: fichas, asuntos pendientes,
+  /// saltos de tiempo y el avance del mundo.
+  List<String> _applyGame(Campaign c, GameSession s, ParsedNarration p, ChatMessage gm) {
+    final notes = <String>[...state.apply(c.id!, p.changes, messageId: gm.id ?? 0)];
+    for (final (kind, text) in p.threadsOpened) {
+      final t = db.addPlotThread(PlotThread(
+        campaignId: c.id!,
+        kind: PlotThread.kinds.contains(kind) ? kind : 'pendiente',
+        text: text,
+        session: s.number,
+      ));
+      if (t != null) notes.add('${t.icon} Nuevo ${t.kind}: ${t.text}');
+    }
+    for (final text in p.threadsClosed) {
+      final n = AppDatabase.normalize(text);
+      for (final t in db.plotThreads(c.id!, open: true)) {
+        final tn = AppDatabase.normalize(t.text);
+        if (tn == n || tn.contains(n) || n.contains(tn)) {
+          t.open = false;
+          db.updatePlotThread(t);
+          notes.add('${t.icon} Resuelto: ${t.text}');
+        }
+      }
+    }
+    // Los acontecimientos del mundo ya se le dieron al director en este turno.
+    world.clearEvents(c);
+    final days = p.timeSkip == null ? null : WorldEngine.parseDays(p.timeSkip!);
+    if (days != null && days > 0) {
+      notes
+        ..add('⌛ Pasan ${WorldEngine.describeDays(days)}.')
+        ..addAll(world.tick(c, steps: days <= 1 ? 1 : (days <= 7 ? 2 : (days <= 30 ? 4 : 6))));
+    } else {
+      notes.addAll(world.onTurn(c, every: config.worldEvery));
+    }
+    tableNote(c, s, notes);
+    return notes;
   }
 
   void _applyState(Campaign c, ParsedNarration p) {
@@ -238,11 +330,22 @@ class Director {
     if (changed) db.updateCampaign(c);
   }
 
-  Future<void> _afterTurn(Campaign c, ChatMessage player, ChatMessage gm) async {
+  Future<void> _afterTurn(Campaign c, GameSession s, ChatMessage player, ChatMessage gm, Set<String> present) async {
     try {
       await rag.addText(c.id!, 'sesión · ${gm.ts.toIso8601String().substring(0, 16)}',
           '[${player.speaker}] ${player.content}\n[Director] ${gm.content}');
-      await extractor.extract(c.id!, '[${player.speaker}] ${player.content}', gm.content);
+      final r = await extractor.extract(
+        c.id!,
+        '[${player.speaker}] ${player.content}',
+        gm.content,
+        session: s.number,
+        messageId: gm.id ?? 0,
+        present: present,
+      );
+      if (r.notes.isNotEmpty) {
+        tableNote(c, s, r.notes);
+        _archive.add(r.notes);
+      }
       await _compactMemory(c);
     } catch (e) {
       debugPrint('Tareas tras el turno: $e');
@@ -310,6 +413,12 @@ class Director {
       lastSessionSummary: lastSession?.summary ?? '',
       graphFacts: graphFacts,
       ragSnippets: ragText,
+      characters: state.ensureCharacters(c.id!),
+      pins: db.pins(c.id!),
+      threads: db.plotThreads(c.id!, open: true),
+      clocks: db.clocks(c.id!, onlyActive: true),
+      worldEvents: WorldEngine.pendingEvents(c),
+      presentNpcs: _presentNpcs(c, query),
     )}';
 
     final budget = config.contextSize -
@@ -336,6 +445,18 @@ class Director {
       history.add(LlmMessage.user(playerText));
     }
     return [LlmMessage.system(system), ...history];
+  }
+
+  /// PNJ en escena: los que han hablado hace poco o se mencionan ahora.
+  List<Npc> _presentNpcs(Campaign c, String query) {
+    final recentIds = db.recentMessages(c.id!, limit: 8).map((m) => m.id ?? 0).toList();
+    final minId = recentIds.isEmpty ? 0 : recentIds.first;
+    final q = AppDatabase.normalize(query);
+    return db.npcs(c.id!).where((n) {
+      if (n.lastSeen > 0 && n.lastSeen >= minId) return true;
+      final words = AppDatabase.normalize(n.name).split(' ').where((w) => w.length > 3);
+      return words.any(q.contains);
+    }).take(8).toList();
   }
 
   /// Cierra la sesión generando el resumen que se usará al continuar.
