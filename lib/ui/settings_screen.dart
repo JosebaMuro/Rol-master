@@ -216,7 +216,19 @@ class SettingsScreen extends StatelessWidget {
         ),
         const Padding(
           padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: Text('Voces neuronales (sherpa-onnx, funcionan sin Internet una vez descargadas)'),
+          child: Text('Voces neuronales (sherpa-onnx, funcionan sin Internet). Las marcadas con ✓ vienen con la app.'),
+        ),
+        ListenableBuilder(
+          listenable: s.bundled,
+          builder: (context, _) {
+            final b = s.bundled;
+            if (!b.busy && b.error == null) return const SizedBox.shrink();
+            return ListTile(
+              leading: const Icon(Icons.inventory_2_outlined),
+              title: Text(b.busy ? 'Preparando las voces incluidas…' : b.error!),
+              subtitle: b.busy ? LinearProgressIndicator(value: b.progress) : const Text('Se reintentará al abrir la app'),
+            );
+          },
         ),
         for (final info in voicePackCatalog) _packTile(context, packs, info),
         Padding(
@@ -368,9 +380,11 @@ class SettingsScreen extends StatelessWidget {
               height: 40,
               child: CircularProgressIndicator(value: packs.downloading[info.id]),
             )
-          : installed
-              ? IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => packs.remove(info.id))
-              : IconButton(icon: const Icon(Icons.download), onPressed: () => packs.install(info)),
+          : packs.isBundled(info.id)
+              ? const Tooltip(message: 'Incluida con la app', child: Icon(Icons.verified_outlined))
+              : installed
+                  ? IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => packs.remove(info.id))
+                  : IconButton(icon: const Icon(Icons.download), onPressed: () => packs.install(info)),
     );
   }
 
@@ -394,9 +408,11 @@ class SettingsScreen extends StatelessWidget {
       subtitle: Text('${info.description} · ${info.sizeMb} MB${err == null ? '' : '\nError: $err'}'),
       trailing: downloading
           ? SizedBox(width: 40, height: 40, child: CircularProgressIndicator(value: speech.downloading[info.id]))
-          : installed
-              ? IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => speech.remove(info.id))
-              : IconButton(icon: const Icon(Icons.download), onPressed: () => speech.install(info)),
+          : speech.isBundled(info.id)
+              ? const Tooltip(message: 'Incluido con la app', child: Icon(Icons.verified_outlined))
+              : installed
+                  ? IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => speech.remove(info.id))
+                  : IconButton(icon: const Icon(Icons.download), onPressed: () => speech.install(info)),
     );
   }
 

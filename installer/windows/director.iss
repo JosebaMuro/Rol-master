@@ -28,7 +28,13 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
-Source: "..\..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Excludes: "incluidos"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Voces y Whisper incluidos: los pesos de los modelos apenas se comprimen y comprimirlos alarga mucho la compilación
+Source: "..\..\build\windows\x64\runner\Release\incluidos\*"; DestDir: "{app}\incluidos"; Flags: ignoreversion recursesubdirs createallsubdirs nocompression
+
+[InstallDelete]
+; Al actualizar, quita los modelos incluidos de la versión anterior
+Type: filesandordirs; Name: "{app}\incluidos"
 
 [Icons]
 Name: "{group}\Director de Rol"; Filename: "{app}\director_de_rol.exe"

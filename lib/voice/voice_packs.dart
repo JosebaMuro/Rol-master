@@ -61,6 +61,13 @@ const voicePackCatalog = <VoicePackInfo>[
     description: 'Calidad básica, para móviles modestos.',
   ),
   VoicePackInfo(
+    id: 'kokoro-int8-multi-lang-v1_0',
+    label: 'Kokoro multilingüe v1.0 ligera (53 voces)',
+    kind: 'kokoro',
+    sizeMb: 130,
+    description: 'Las mismas 53 voces de Kokoro comprimidas (int8): casi igual de buenas, la mitad de tamaño y más rápidas en móvil.',
+  ),
+  VoicePackInfo(
     id: 'kokoro-multi-lang-v1_0',
     label: 'Kokoro multilingüe v1.0 (53 voces)',
     kind: 'kokoro',
@@ -71,12 +78,22 @@ const voicePackCatalog = <VoicePackInfo>[
 
 /// Ficheros resueltos de un paquete instalado.
 class InstalledVoicePack {
-  InstalledVoicePack({required this.id, required this.kind, required this.dir, required this.files, this.numSpeakers = 1});
+  InstalledVoicePack({
+    required this.id,
+    required this.kind,
+    required this.dir,
+    required this.files,
+    this.numSpeakers = 1,
+    this.bundled = false,
+  });
   final String id;
   final String kind;
   final String dir;
   final Map<String, String> files;
   int numSpeakers;
+
+  /// Viene incluido con la app (no se descarga ni se puede borrar).
+  bool bundled;
 
   Map<String, dynamic> toJson() => {'id': id, 'kind': kind, 'dir': dir, 'files': files, 'numSpeakers': numSpeakers};
   factory InstalledVoicePack.fromJson(Map<String, dynamic> j) => InstalledVoicePack(
@@ -89,8 +106,12 @@ class InstalledVoicePack {
 }
 
 class VoicePackManager extends ChangeNotifier {
-  VoicePackManager(this.rootDir);
+  VoicePackManager(this.rootDir, {this.bundledDirs = const []});
   final String rootDir;
+
+  /// Carpetas de sólo lectura con voces que trae la app (en Windows,
+  /// `incluidos/voces` junto al ejecutable). Se usan sin copiarlas.
+  final List<String> bundledDirs;
 
   final Map<String, double?> downloading = {};
   final Map<String, String> errors = {};
@@ -101,26 +122,45 @@ class VoicePackManager extends ChangeNotifier {
     if (!root.existsSync()) root.createSync(recursive: true);
     final out = <InstalledVoicePack>[];
     for (final d in root.listSync().whereType<Directory>()) {
-      final meta = File(p.join(d.path, 'pack.json'));
-      if (meta.existsSync()) {
-        try {
-          final stored = InstalledVoicePack.fromJson(jsonDecode(meta.readAsStringSync()) as Map<String, dynamic>);
-          // Las rutas se guardan relativas al paquete: así la carpeta se
-          // puede mover a otro equipo. Se resuelven aquí.
-          final files = {
-            for (final e in stored.files.entries)
-              e.key: e.value.split(',').map((f) => p.isAbsolute(f) ? f : p.join(d.path, f)).join(','),
-          };
-          final broken = files.values.any((v) => v.split(',').any((f) => !File(f).existsSync() && !Directory(f).existsSync()));
-          final pack = broken
-              ? _detect(stored.id, stored.kind, d.path)
-              : InstalledVoicePack(id: stored.id, kind: stored.kind, dir: d.path, files: files, numSpeakers: stored.numSpeakers);
-          out.add(pack);
-        } catch (_) {}
+      final pack = _load(d);
+      if (pack != null) out.add(pack);
+    }
+    for (final dir in bundledDirs) {
+      final b = Directory(dir);
+      if (!b.existsSync()) continue;
+      for (final d in b.listSync().whereType<Directory>()) {
+        final id = p.basename(d.path);
+        if (out.any((e) => e.id == id)) continue; // la copia del usuario manda
+        final pack = _load(d) ?? _detect(id, id.contains('kokoro') ? 'kokoro' : 'vits', d.path);
+        if (!pack.files.containsKey('model') || !pack.files.containsKey('tokens')) continue;
+        pack.bundled = true;
+        out.add(pack);
       }
     }
     installed = out;
     notifyListeners();
+  }
+
+  /// Lee el paquete de [d] a partir de su pack.json (null si no tiene).
+  InstalledVoicePack? _load(Directory d) {
+    final meta = File(p.join(d.path, 'pack.json'));
+    if (!meta.existsSync()) return null;
+    try {
+      final stored = InstalledVoicePack.fromJson(jsonDecode(meta.readAsStringSync()) as Map<String, dynamic>);
+      // Las rutas se guardan relativas al paquete: así la carpeta se
+      // puede mover a otro equipo. Se resuelven aquí.
+      final files = {
+        for (final e in stored.files.entries)
+          e.key: e.value.split(',').map((f) => p.isAbsolute(f) ? f : p.join(d.path, f)).join(','),
+      };
+      final broken = files.values.any((v) => v.split(',').any((f) => !File(f).existsSync() && !Directory(f).existsSync()));
+      final pack = broken
+          ? _detect(stored.id, stored.kind, d.path)
+          : InstalledVoicePack(id: stored.id, kind: stored.kind, dir: d.path, files: files, numSpeakers: stored.numSpeakers);
+      return pack;
+    } catch (_) {
+      return null;
+    }
   }
 
   InstalledVoicePack? byId(String id) => installed.where((e) => e.id == id).firstOrNull;
@@ -129,7 +169,11 @@ class VoicePackManager extends ChangeNotifier {
     final pack = byId(id);
     if (pack == null || pack.numSpeakers == n) return;
     pack.numSpeakers = n;
-    _writeMeta(pack);
+    try {
+      _writeMeta(pack);
+    } catch (_) {
+      // Carpeta de sólo lectura (voz incluida con la app).
+    }
     notifyListeners();
   }
 
@@ -185,7 +229,19 @@ class VoicePackManager extends ChangeNotifier {
     await refresh();
   }
 
+  /// Da de alta una voz ya descomprimida en la carpeta de voces (p. ej. la
+  /// que la app copia de su APK en el primer arranque).
+  void register(String id) {
+    final d = p.join(rootDir, id);
+    if (!Directory(d).existsSync()) return;
+    _writeMeta(_detect(id, id.contains('kokoro') ? 'kokoro' : 'vits', d));
+  }
+
+  /// Si la voz viene con la app (y no hay copia propia que borrar).
+  bool isBundled(String id) => byId(id)?.bundled ?? false;
+
   Future<void> remove(String id) async {
+    if (isBundled(id)) return;
     final d = Directory(p.join(rootDir, id));
     if (d.existsSync()) d.deleteSync(recursive: true);
     await refresh();
