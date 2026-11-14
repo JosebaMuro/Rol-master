@@ -4,8 +4,9 @@ import 'dart:isolate';
 
 import 'package:archive/archive_io.dart';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
+
+import '../core/downloader.dart';
 
 /// Paquete de voces neuronales para sherpa-onnx (se ejecuta en local, sin
 /// Internet, en CPU de móvil o PC).
@@ -136,32 +137,38 @@ class VoicePackManager extends ChangeNotifier {
     downloading[info.id] = 0;
     errors.remove(info.id);
     notifyListeners();
-    final tmp = File(p.join(rootDir, '${info.id}.tar.bz2'));
+    // Se descarga a un .part que se conserva si falla: al volver a pulsar
+    // se continúa donde se quedó.
+    final tmp = File(p.join(rootDir, '${info.id}.tar.bz2.part'));
+    final archivePath = p.join(rootDir, '${info.id}.tar.bz2');
+    var downloaded = false;
     try {
-      final client = http.Client();
-      final res = await client.send(http.Request('GET', Uri.parse(info.url)));
-      if (res.statusCode != 200) throw HttpException('HTTP ${res.statusCode}');
-      final total = res.contentLength ?? 0;
-      var received = 0;
-      final sink = tmp.openWrite();
-      await for (final chunk in res.stream) {
-        sink.add(chunk);
-        received += chunk.length;
-        downloading[info.id] = total > 0 ? received / total : null;
+      await ResumableDownloader().download(Uri.parse(info.url), tmp, onProgress: (f) {
+        downloading[info.id] = f;
         notifyListeners();
-      }
-      await sink.close();
-      client.close();
+      });
+      downloaded = true;
       downloading[info.id] = null;
       notifyListeners();
       final dest = p.join(rootDir, info.id);
-      await Isolate.run(() => _extract(tmp.path, rootDir));
+      // La extracción reconoce el formato por la extensión.
+      final archive = tmp.renameSync(archivePath);
+      try {
+        await Isolate.run(() => _extract(archive.path, rootDir));
+      } catch (e) {
+        throw Exception('el archivo descargado está dañado, vuelve a intentarlo');
+      }
       _writeMeta(_detect(info.id, info.kind, dest));
       await refresh();
     } catch (e) {
-      errors[info.id] = '$e';
+      errors[info.id] = 'No se pudo instalar: ${ResumableDownloader.describe(e).replaceFirst('Exception: ', '')}';
     } finally {
-      if (tmp.existsSync()) tmp.deleteSync();
+      // Un archivo ya descargado (extraído o dañado) no sirve para reanudar.
+      if (downloaded) {
+        for (final f in [tmp, File(archivePath)]) {
+          if (f.existsSync()) f.deleteSync();
+        }
+      }
       downloading.remove(info.id);
       notifyListeners();
     }
