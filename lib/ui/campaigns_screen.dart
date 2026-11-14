@@ -1,13 +1,11 @@
-import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
 
 import '../app_services.dart';
 import '../core/models.dart';
-import '../core/story_package.dart';
 import 'campaign_detail_screen.dart';
+import 'campaign_package_ui.dart';
 import 'new_campaign_screen.dart';
 
 class CampaignsScreen extends StatefulWidget {
@@ -25,7 +23,7 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Campañas'), actions: [
         IconButton(
-          tooltip: 'Importar historia (.rolpack)',
+          tooltip: 'Importar campaña (.rolpack)',
           icon: const Icon(Icons.file_open),
           onPressed: () => _import(s),
         ),
@@ -56,24 +54,12 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
   }
 
   Future<void> _import(AppServices s) async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final f = await FilePicker.pickFile(dialogTitle: 'Importar historia');
-      if (f == null) return;
-      final bytes = f.path != null && File(f.path!).existsSync()
-          ? await File(f.path!).readAsBytes()
-          : await f.xFile.readAsBytes();
-      final c = StoryPackage.import(s.db, bytes, mapsDir: s.dataRoot.maps);
-      if (!mounted) return;
-      setState(() {});
-      messenger.showSnackBar(SnackBar(content: Text('Historia «${c.title}» importada')));
-      await Navigator.push(context, MaterialPageRoute(builder: (_) => CampaignDetailScreen(campaignId: c.id!)));
-      if (mounted) setState(() {});
-    } on FormatException catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text(e.message)));
-    } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('No se pudo importar: $e')));
-    }
+    final c = await importCampaignPackage(context, s);
+    if (!mounted) return;
+    setState(() {});
+    if (c == null) return;
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => CampaignDetailScreen(campaignId: c.id!)));
+    if (mounted) setState(() {});
   }
 
   Widget _tile(BuildContext context, AppServices s, Campaign c) {

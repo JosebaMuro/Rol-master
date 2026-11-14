@@ -1,14 +1,10 @@
-import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
 import '../app_services.dart';
 import '../core/models.dart';
-import '../core/story_package.dart';
-import '../logs/log_service.dart';
+import 'campaign_package_ui.dart';
 import 'graph_screen.dart';
 import 'logs_screen.dart';
 import 'npc_voices_screen.dart';
@@ -23,28 +19,6 @@ class CampaignDetailScreen extends StatefulWidget {
 }
 
 class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
-  Future<void> _exportStory(AppServices s, Campaign c, {required bool includeProgress}) async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final bytes = StoryPackage.export(s.db, c.id!, includeProgress: includeProgress);
-      final safe = LogService.safe(c.title);
-      final name = '$safe${includeProgress ? '' : ' (sin jugar)'}.${StoryPackage.extension}';
-      // Copia siempre en la carpeta portable…
-      final local = File(p.join(s.dataRoot.exports, name));
-      await local.writeAsBytes(bytes);
-      // …y además donde elija el usuario.
-      Uri? chosen;
-      try {
-        chosen = await FilePicker.saveFile(fileName: name, bytes: bytes, dialogTitle: 'Guardar historia');
-      } catch (_) {}
-      messenger.showSnackBar(SnackBar(
-        content: Text(chosen != null ? 'Historia exportada a ${chosen.toFilePath()}' : 'Historia exportada a ${local.path}'),
-      ));
-    } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('No se pudo exportar: $e')));
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final s = context.read<AppServices>();
@@ -74,8 +48,8 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                     s.db.deleteCampaign(c.id!);
                     Navigator.pop(context);
                   }
-                } else if (v == 'story' || v == 'story_clean') {
-                  await _exportStory(s, c, includeProgress: v == 'story');
+                } else if (v == 'story') {
+                  await exportCampaignPackage(context, s, c);
                 } else if (v == 'export') {
                   final path = await s.logs.exportCampaign(c);
                   if (context.mounted) {
@@ -84,8 +58,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                 }
               },
               itemBuilder: (_) => const [
-                PopupMenuItem(value: 'story', child: Text('Exportar historia con partidas (.rolpack)')),
-                PopupMenuItem(value: 'story_clean', child: Text('Exportar historia sin jugar (.rolpack)')),
+                PopupMenuItem(value: 'story', child: Text('Exportar campaña completa (.rolpack)')),
                 PopupMenuItem(value: 'export', child: Text('Exportar registro (Markdown)')),
                 PopupMenuItem(value: 'delete', child: Text('Borrar campaña')),
               ],
