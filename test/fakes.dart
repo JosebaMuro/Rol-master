@@ -11,6 +11,7 @@ class FakeLlm implements TextGenerator {
   int _r = 0, _j = 0;
   final List<List<LlmMessage>> chatCalls = [];
   final List<List<LlmMessage>> jsonCalls = [];
+  final List<String> queryEmbeds = [];
 
   @override
   bool get isReady => true;
@@ -41,6 +42,7 @@ class FakeLlm implements TextGenerator {
   @override
   Future<List<double>?> embed(String text, {bool query = false}) async {
     if (!embeddings) return null;
+    if (query) queryEmbeds.add(text);
     final v = List<double>.filled(26, 0);
     for (final c in text.toLowerCase().codeUnits) {
       if (c >= 97 && c <= 122) v[c - 97] += 1;
