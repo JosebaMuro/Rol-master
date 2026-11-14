@@ -290,15 +290,30 @@ class Director {
     db.updateCampaign(c);
   }
 
+  /// Consulta para el RAG: el texto del jugador entero y, de los mensajes
+  /// recientes, sólo el final (lo más reciente de la escena). Así el embedding
+  /// se calcula sobre unas decenas de tokens y no sobre más de mil.
+  static String ragQuery(String playerText, Iterable<String> recent, {int tail = 300}) {
+    final player = playerText.trim();
+    final b = StringBuffer(player);
+    for (final m in recent) {
+      final t = m.trim();
+      if (t.isEmpty || t == player) continue;
+      b.write('\n${t.length > tail ? t.substring(t.length - tail) : t}');
+    }
+    return b.toString();
+  }
+
   /// Construye la conversación que se envía al modelo.
   Future<List<LlmMessage>> buildPrompt(Campaign c, List<String> situations, String playerText) async {
     final recentForQuery = db.recentMessages(c.id!, limit: 3).map((m) => m.content).join('\n');
     final query = '$playerText\n$recentForQuery';
     final graphFacts = graph.contextFor(c.id!, query);
-    final hits = await rag.search(c.id!, playerText, k: 5);
-    // La documentación (reglas, ambientación) siempre tiene hueco propio.
-    final seen = hits.map((h) => h.chunk.text).toSet();
-    hits.addAll((await rag.searchDocs(query, campaignId: c.id, k: 3)).where((h) => seen.add(h.chunk.text)));
+    // Un solo embedding por turno, y corto: lo que dice el jugador y el final
+    // de la última narración. La documentación (reglas, ambientación) tiene
+    // hueco propio dentro de la misma búsqueda.
+    final recent = db.recentMessages(c.id!, limit: 2).map((m) => m.content);
+    final hits = await rag.searchForTurn(c.id!, ragQuery(playerText, recent));
     final ragText = hits.map((h) => '- (${h.chunk.source}) ${h.chunk.text.replaceAll('\n', ' ')}').join('\n');
     final lastSession = db.sessions(c.id!).where((s) => s.summary.isNotEmpty).lastOrNull;
 
