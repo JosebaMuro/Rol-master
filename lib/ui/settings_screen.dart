@@ -12,8 +12,10 @@ import '../core/scenes.dart';
 import '../core/settings.dart';
 import '../voice/speech_input.dart';
 import '../voice/voice_packs.dart';
+import '../voice/voice_service.dart';
 import 'widgets/file_utils.dart';
 import 'widgets/scene_panel.dart';
+import 'widgets/voice_diagnostics.dart';
 import 'widgets/voice_editor.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -174,6 +176,12 @@ class SettingsScreen extends StatelessWidget {
 
         header('Voces'),
         SwitchListTile(title: const Text('Voces activadas'), value: st.voiceEnabled, onChanged: (v) => st.voiceEnabled = v),
+        ListTile(
+          leading: const Icon(Icons.troubleshoot),
+          title: const Text('Diagnóstico de voces'),
+          subtitle: const Text('Prueba el altavoz, la voz del sistema y las neuronales, y da un informe para copiar'),
+          onTap: () => showVoiceDiagnostics(context, context.read<VoiceService>()),
+        ),
         SwitchListTile(
           title: const Text('Leer también la narración'),
           subtitle: const Text('Si está apagado, sólo hablan los PNJ'),
