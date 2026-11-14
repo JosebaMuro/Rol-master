@@ -31,6 +31,7 @@ class MapRenderer {
   }
 
   static void paint(Canvas canvas, Size size, DungeonMap m, String title) {
+    if (m.isTown) return _paintTown(canvas, size, m, title);
     final r = Random(m.seed);
     canvas.drawRect(Offset.zero & size, Paint()..color = _parchment);
     // Manchas del pergamino.
@@ -138,6 +139,108 @@ class MapRenderer {
     _text(canvas, title, Offset(size.width / 2, 38), 26, _ink, bold: true, serif: true);
     _compass(canvas, Offset(size.width - margin + 10, size.height - margin + 10));
     _text(canvas, '1 casilla = 1,5 m', Offset(margin + 50, size.height - 22), 12, _ink);
+  }
+
+  // ------------------------------------------------------------- pueblos
+  static const _grass = Color(0xFFD9DDB0);
+  static const _road = Color(0xFFF3E7C9);
+  static const _plazaC = Color(0xFFE9D9B0);
+  static const _roof = Color(0xFF9C4F36);
+  static const _roofDark = Color(0xFF6E3423);
+  static const _stone = Color(0xFF5B5049);
+  static const _field = Color(0xFFC9C27A);
+  static const _treeC = Color(0xFF5E7D4A);
+
+  static void _paintTown(Canvas canvas, Size size, DungeonMap m, String title) {
+    final r = Random(m.seed);
+    canvas.drawRect(Offset.zero & size, Paint()..color = _parchment);
+    final origin = Offset(margin, margin + 30);
+    Rect cellRect(int x, int y) => Rect.fromLTWH(origin.dx + x * cell, origin.dy + y * cell, cell, cell);
+    canvas.drawRect(Rect.fromLTWH(origin.dx, origin.dy, m.width * cell, m.height * cell), Paint()..color = _grass);
+
+    for (var y = 0; y < m.height; y++) {
+      for (var x = 0; x < m.width; x++) {
+        final c = cellRect(x, y);
+        switch (m.at(x, y)) {
+          case Tile.road || Tile.gate:
+            canvas.drawRect(c.inflate(0.4), Paint()..color = _road);
+          case Tile.plaza:
+            canvas.drawRect(c.inflate(0.4), Paint()..color = _plazaC);
+            canvas.drawRect(c.deflate(2), Paint()..color = const Color(0xFFD7C493)..style = PaintingStyle.stroke..strokeWidth = 0.7);
+          case Tile.water:
+            canvas.drawRect(c.inflate(0.4), Paint()..color = _water);
+            if (r.nextDouble() < 0.3) {
+              canvas.drawLine(c.centerLeft + const Offset(4, 0), c.center + const Offset(3, -2),
+                  Paint()..color = const Color(0xFFE8F1F8)..strokeWidth = 1);
+            }
+          case Tile.bridge:
+            canvas.drawRect(c.inflate(0.4), Paint()..color = _water);
+            canvas.drawRect(c.deflate(1), Paint()..color = _door);
+            canvas.drawLine(c.topLeft, c.topRight, Paint()..color = _ink..strokeWidth = 1.2);
+            canvas.drawLine(c.bottomLeft, c.bottomRight, Paint()..color = _ink..strokeWidth = 1.2);
+          case Tile.field:
+            canvas.drawRect(c.inflate(0.4), Paint()..color = _field);
+            canvas.drawLine(c.topLeft + const Offset(0, 6), c.topRight + const Offset(0, 6),
+                Paint()..color = const Color(0xFFA9A15A)..strokeWidth = 1);
+            canvas.drawLine(c.topLeft + const Offset(0, 15), c.topRight + const Offset(0, 15),
+                Paint()..color = const Color(0xFFA9A15A)..strokeWidth = 1);
+          case Tile.tree:
+            canvas.drawCircle(c.center + Offset(r.nextDouble() * 4 - 2, r.nextDouble() * 4 - 2), cell * 0.55,
+                Paint()..color = _treeC.withValues(alpha: 0.85));
+            canvas.drawCircle(c.center, cell * 0.55, Paint()..color = _ink.withValues(alpha: 0.35)..style = PaintingStyle.stroke);
+          default:
+            break;
+        }
+      }
+    }
+
+    // Muralla de piedra con almenas, y puertas.
+    for (var y = 0; y < m.height; y++) {
+      for (var x = 0; x < m.width; x++) {
+        final t = m.at(x, y);
+        final c = cellRect(x, y);
+        if (t == Tile.townWall) {
+          canvas.drawRect(c.inflate(0.6), Paint()..color = _stone);
+          canvas.drawRect(c.deflate(4), Paint()..color = const Color(0xFF7A6E66));
+        } else if (t == Tile.gate) {
+          final nearWall = [(1, 0), (-1, 0), (0, 1), (0, -1)].any((d) => m.at(x + d.$1, y + d.$2) == Tile.townWall);
+          if (nearWall) canvas.drawRect(c.deflate(3), Paint()..color = _door.withValues(alpha: 0.7));
+        }
+      }
+    }
+
+    // Casas con tejado a dos aguas.
+    for (final b in m.buildings) {
+      final rect = Rect.fromLTWH(origin.dx + b.x * cell + 1.5, origin.dy + b.y * cell + 1.5, b.w * cell - 3, b.h * cell - 3);
+      canvas.drawRect(rect.shift(const Offset(2, 2)), Paint()..color = const Color(0xFF000000).withValues(alpha: 0.18));
+      canvas.drawRect(rect, Paint()..color = _roof);
+      final horizontal = b.w >= b.h;
+      final ridge = Paint()
+        ..color = _roofDark
+        ..strokeWidth = 2;
+      if (horizontal) {
+        canvas.drawLine(rect.centerLeft, rect.centerRight, ridge);
+        canvas.drawRect(Rect.fromLTRB(rect.left, rect.center.dy, rect.right, rect.bottom),
+            Paint()..color = _roofDark.withValues(alpha: 0.35));
+      } else {
+        canvas.drawLine(rect.topCenter, rect.bottomCenter, ridge);
+        canvas.drawRect(Rect.fromLTRB(rect.center.dx, rect.top, rect.right, rect.bottom),
+            Paint()..color = _roofDark.withValues(alpha: 0.35));
+      }
+      canvas.drawRect(rect, Paint()..color = _ink..style = PaintingStyle.stroke..strokeWidth = 1.2);
+    }
+
+    // Números de los lugares.
+    for (final room in m.rooms) {
+      final c = cellRect(room.cx, room.cy).center;
+      canvas.drawCircle(c, cell * 0.62, Paint()..color = const Color(0xFFFFFBF0));
+      canvas.drawCircle(c, cell * 0.62, Paint()..color = const Color(0xFF8E1B1B)..style = PaintingStyle.stroke..strokeWidth = 2);
+      _text(canvas, '${room.number}', c, 13, const Color(0xFF8E1B1B), bold: true);
+    }
+
+    _text(canvas, title, Offset(size.width / 2, 38), 26, _ink, bold: true, serif: true);
+    _compass(canvas, Offset(size.width - margin + 10, size.height - margin + 10));
+    _text(canvas, '1 casilla = 5 m', Offset(margin + 50, size.height - 22), 12, _ink);
   }
 
   static void _compass(Canvas canvas, Offset c) {

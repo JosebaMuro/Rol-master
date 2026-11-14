@@ -16,7 +16,10 @@ PRINCIPIOS
 - Los PNJ tienen motivaciones propias, mienten si les conviene y recuerdan cómo se les trató.
 - Termina cada respuesta con una situación abierta que invite a actuar ("¿Qué hacéis?"), sin ofrecer listas de opciones salvo que te las pidan.
 - Respuestas de 120 a 300 palabras salvo que la escena pida más.
-- Cuando haya incertidumbre, pide una tirada y explica la dificultad; cuando te den el resultado, narra la consecuencia.
+- Cuando haya incertidumbre, pide una tirada y explica la dificultad. La APP tira los dados: NUNCA inventes el resultado; espera a que te lo den y entonces narra la consecuencia según el grado (pifia, fallo, éxito por los pelos, éxito, crítico).
+- La APP lleva las fichas (PV, objetos, oro, estados). El ESTADO DE LOS PERSONAJES es la verdad: no des por hecho que alguien tiene algo que no lleva. Cuando algo cambie, indícalo con una etiqueta y la app lo aplicará.
+- Los PNJ sólo saben lo que han presenciado o les han contado. Respeta su actitud hacia el grupo y persiguen sus objetivos.
+- Si hay ACONTECIMIENTOS DEL MUNDO pendientes, muéstralos en la narración (rumores, mensajeros, consecuencias visibles) en cuanto tenga sentido.
 
 FORMATO OBLIGATORIO
 - Narración en prosa normal.
@@ -25,8 +28,16 @@ FORMATO OBLIGATORIO
   (sin comillas, una línea por intervención). Así se le asigna su voz.
 - Etiquetas de control, en línea aparte, sólo cuando correspondan (el jugador no las ve):
   [[musica: SITUACIÓN]]  cuando cambie el ambiente. SITUACIÓN es una de: ${situations.join(', ')}.
-  [[mapa: TIPO | Título]]  cuando los jugadores entren en un lugar que merezca mapa. TIPO: mazmorra, cueva o cripta.
-  [[tirada: Habilidad CD número]]  cuando pidas una tirada.
+  [[mapa: TIPO | Título]]  cuando los jugadores entren en un lugar que merezca mapa. TIPO: mazmorra, cueva, cripta, ruinas o pueblo.
+  [[tirada: Personaje | Habilidad CD número]]  cuando pidas una tirada (la app la resuelve).
+  [[pv: Personaje -número]] o [[pv: Personaje +número]]  daño o curación.
+  [[objeto: Personaje +Nombre del objeto]] o [[objeto: Personaje -Nombre del objeto]]  cuando gane o pierda algo.
+  [[oro: Personaje +número]] o [[oro: Personaje -número]]  dinero.
+  [[estado: Personaje +envenenado]] o [[estado: Personaje -envenenado]]  condiciones.
+  [[actitud: Nombre del PNJ +1]] o [[actitud: Nombre del PNJ -1]]  cuando un PNJ cambie de actitud hacia el grupo.
+  [[pendiente: promesa | texto]]  cuando quede una promesa, deuda, amenaza, misión o pista pendiente.
+  [[resuelto: texto del asunto]]  cuando se cumpla o resuelva un asunto pendiente.
+  [[tiempo: 3 días]]  cuando pase mucho tiempo de golpe.
   [[lugar: Nombre del lugar]]  cuando los personajes cambien de lugar.
   [[escena: TIPO]]  junto a [[lugar]], para el fondo de pantalla. TIPO: ${Scenes.kinds.map((k) => k.id).join(', ')}.
   [[acto: número]]  cuando la historia pase al siguiente acto.
@@ -39,6 +50,12 @@ FORMATO OBLIGATORIO
     String lastSessionSummary = '',
     String graphFacts = '',
     String ragSnippets = '',
+    List<CharacterState> characters = const [],
+    List<PinnedMemory> pins = const [],
+    List<PlotThread> threads = const [],
+    List<WorldClock> clocks = const [],
+    List<String> worldEvents = const [],
+    List<Npc> presentNpcs = const [],
   }) {
     final b = StringBuffer();
     b.writeln('=== BIBLIA DE CAMPAÑA (secreta, sólo para el director) ===');
@@ -78,7 +95,57 @@ FORMATO OBLIGATORIO
       b.writeln();
       b.writeln('=== PNJ CONOCIDOS (usa estos nombres exactos con @) ===');
       for (final n in npcs.take(25)) {
-        b.writeln('- ${n.name}${n.description.isEmpty ? '' : ': ${n.description}'}');
+        final extra = [
+          if (n.attitude != 0) 'actitud: ${n.attitudeName}',
+          if (n.goal.isNotEmpty) 'quiere: ${n.goal}',
+        ].join('; ');
+        b.writeln('- ${n.name}${n.description.isEmpty ? '' : ': ${n.description}'}${extra.isEmpty ? '' : ' ($extra)'}');
+      }
+    }
+    if (presentNpcs.isNotEmpty) {
+      b.writeln();
+      b.writeln('=== PNJ EN ESCENA (actitud, objetivo y lo que saben) ===');
+      for (final n in presentNpcs) {
+        b.writeln('- ${n.name}: ${n.attitudeName} con el grupo (${n.attitude >= 0 ? '+' : ''}${n.attitude})'
+            '${n.goal.isEmpty ? '' : '. Quiere: ${n.goal}'}');
+        if (n.knows.isNotEmpty) b.writeln('  Sabe: ${n.knows.reversed.take(5).toList().reversed.join(' / ')}');
+      }
+    }
+
+    if (characters.isNotEmpty) {
+      b.writeln();
+      b.writeln('=== ESTADO DE LOS PERSONAJES (lo lleva la app; es la verdad) ===');
+      for (final ch in characters) {
+        b.writeln('- ${ch.summary()}');
+      }
+    }
+    if (pins.isNotEmpty) {
+      b.writeln();
+      b.writeln('=== RECUERDOS FIJADOS POR EL GRUPO (tenlos siempre presentes) ===');
+      for (final p in pins) {
+        b.writeln('- ${p.text.replaceAll('\n', ' ')}');
+      }
+    }
+    if (threads.isNotEmpty) {
+      b.writeln();
+      b.writeln('=== ASUNTOS PENDIENTES (promesas, deudas, amenazas…) ===');
+      for (final t in threads.take(15)) {
+        b.writeln('- [${t.kind}] ${t.text}');
+      }
+    }
+    if (clocks.isNotEmpty) {
+      b.writeln();
+      b.writeln('=== EL MUNDO SE MUEVE (tramas en marcha, en secreto) ===');
+      for (final k in clocks.take(8)) {
+        b.writeln('- ${k.owner.isEmpty ? '' : '${k.owner}: '}${k.name} — progreso ${k.filled}/${k.segments}'
+            '${k.stance == 'desconocen' ? '' : ' (el grupo ${k.stance})'}. Siembra señales de que avanza.');
+      }
+    }
+    if (worldEvents.isNotEmpty) {
+      b.writeln();
+      b.writeln('=== ACONTECIMIENTOS DEL MUNDO QUE ACABAN DE OCURRIR (muéstralos) ===');
+      for (final e in worldEvents) {
+        b.writeln('- $e');
       }
     }
 
@@ -151,8 +218,9 @@ FORMATO OBLIGATORIO
             'gender': {'type': 'string', 'enum': ['hombre', 'mujer', 'otro']},
             'age': {'type': 'string', 'enum': ['niño', 'joven', 'adulto', 'anciano']},
             'voice': {'type': 'string'},
+            'goal': {'type': 'string'},
           },
-          'required': ['name', 'role', 'personality', 'secret', 'gender', 'age', 'voice'],
+          'required': ['name', 'role', 'personality', 'secret', 'gender', 'age', 'voice', 'goal'],
         },
       },
       'locations': {
@@ -209,7 +277,7 @@ Diseña una campaña de rol COMPLETA y COMPLEJA en español.
 ${title.isEmpty ? '' : '- Título deseado: $title\n'}- Jugadores y personajes: $ps
 - Ideas del grupo: ${ideas.isEmpty ? '(libre)' : ideas}
 ${reference.isEmpty ? '' : '- Documentación de referencia del grupo (respeta su ambientación y reglas):\n$reference\n'}
-Requisitos: un antagonista con motivación comprensible, $acts actos con objetivo y giro argumental cada uno, entre 5 y 8 PNJ memorables (cada uno con secreto y una descripción breve de su voz), 4-6 lugares, 2-3 facciones con intereses en conflicto, secretos, pistas que conduzcan a ellos, varios finales posibles según lo que hagan los jugadores, y una escena de apertura ("opening") de 150-250 palabras que enganche a los personajes de los jugadores. Teje los trasfondos de los personajes en la trama.
+Requisitos: un antagonista con motivación comprensible, $acts actos con objetivo y giro argumental cada uno, entre 5 y 8 PNJ memorables (cada uno con secreto, un objetivo propio que persigue y una descripción breve de su voz), 4-6 lugares, 2-3 facciones con intereses en conflicto, secretos, pistas que conduzcan a ellos, varios finales posibles según lo que hagan los jugadores, y una escena de apertura ("opening") de 150-250 palabras que enganche a los personajes de los jugadores. Teje los trasfondos de los personajes en la trama.
 ''';
   }
 

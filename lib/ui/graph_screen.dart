@@ -20,6 +20,7 @@ class GraphScreen extends StatefulWidget {
 
 class _GraphScreenState extends State<GraphScreen> {
   bool _visual = true;
+  bool _showPast = false;
   Entity? _selected;
 
   static const typeColors = {
@@ -38,13 +39,21 @@ class _GraphScreenState extends State<GraphScreen> {
   Widget build(BuildContext context) {
     final s = context.read<AppServices>();
     final entities = s.db.entities(widget.campaignId);
-    final relations = s.db.relations(widget.campaignId);
+    final all = s.db.relations(widget.campaignId);
+    final relations = all.where((r) => !r.ended).toList();
+    final past = all.where((r) => r.ended).toList();
     final chunks = s.db.chunkCount(widget.campaignId);
     return Column(children: [
       Padding(
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
         child: Wrap(spacing: 8, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          Text('${entities.length} entidades · ${relations.length} relaciones · $chunks recuerdos (RAG)'),
+          Text('${entities.length} entidades · ${relations.length} hechos vigentes · ${past.length} pasados · $chunks recuerdos (RAG)'),
+          if (!_visual)
+            FilterChip(
+              label: const Text('Ver hechos pasados'),
+              selected: _showPast,
+              onSelected: (v) => setState(() => _showPast = v),
+            ),
           SegmentedButton<bool>(
             segments: const [
               ButtonSegment(value: true, icon: Icon(Icons.hub), label: Text('Grafo')),
@@ -78,7 +87,7 @@ class _GraphScreenState extends State<GraphScreen> {
                     selected: _selected,
                     onSelect: (e) => setState(() => _selected = e),
                   )
-                : _list(s, entities, relations),
+                : _list(s, entities, _showPast ? all : relations),
       ),
       if (_selected != null && _visual)
         Card(
@@ -97,13 +106,22 @@ class _GraphScreenState extends State<GraphScreen> {
         ListTile(
           leading: CircleAvatar(backgroundColor: typeColors[e.type] ?? Colors.grey, radius: 8),
           title: Text(e.name),
-          subtitle: Text(
-            [
-              e.type,
-              if (e.description.isNotEmpty) e.description,
-              ...relations.where((r) => r.sourceId == e.id).map((r) => '→ ${r.relation} ${r.targetName}'),
-            ].join('\n'),
-          ),
+          subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text([e.type, if (e.description.isNotEmpty) e.description].join('\n')),
+            for (final r in relations.where((r) => r.sourceId == e.id))
+              InkWell(
+                onLongPress: () {
+                  // Mantener pulsado: el hecho pasa a ser pasado (o vuelve a ser cierto).
+                  r.ended ? s.db.reopenRelation(r.id!) : s.db.endRelation(r.id!);
+                  setState(() {});
+                },
+                child: Text(
+                  '${r.ended ? '✗' : '→'} ${r.relation} ${r.targetName}'
+                  '${r.ended ? ' (ya no${r.untilSession > 0 ? ', desde la sesión ${r.untilSession}' : ''})' : ''}',
+                  style: r.ended ? const TextStyle(decoration: TextDecoration.lineThrough, color: Colors.white54) : null,
+                ),
+              ),
+          ]),
           onTap: () => _edit(s, e),
         ),
     ]);

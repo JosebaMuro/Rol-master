@@ -1,7 +1,17 @@
 import 'dart:math';
 
+import 'ruins_generator.dart';
+import 'town_generator.dart';
+
+export 'ruins_generator.dart';
+export 'town_generator.dart';
+
 /// Tipos de casilla del mapa.
-enum Tile { wall, floor, corridor, door, water, stairsUp, stairsDown, pillar }
+enum Tile {
+  wall, floor, corridor, door, water, stairsUp, stairsDown, pillar,
+  // Pueblos y ciudades.
+  grass, road, plaza, building, townWall, gate, field, tree, bridge,
+}
 
 class Room {
   Room(this.x, this.y, this.w, this.h, this.number);
@@ -26,6 +36,14 @@ class DungeonMap {
   /// Conexiones entre salas (índices en [rooms]) para la leyenda.
   final List<(int, int)> links = [];
 
+  /// Edificios de un pueblo (para dibujar sus tejados).
+  final List<Room> buildings = [];
+
+  /// Nombre propuesto para algunos lugares numerados (pueblos).
+  final Map<Room, String> labels = {};
+
+  bool get isTown => kind == 'pueblo';
+
   Tile at(int x, int y) => (x < 0 || y < 0 || x >= width || y >= height) ? Tile.wall : tiles[y][x];
   void set(int x, int y, Tile t) {
     if (x > 0 && y > 0 && x < width - 1 && y < height - 1) tiles[y][x] = t;
@@ -39,12 +57,26 @@ class DungeonMap {
 /// Generador procedimental de mapas: mazmorras clásicas, criptas simétricas y
 /// cuevas naturales. Determinista a partir de la semilla.
 class DungeonGenerator {
-  static const kinds = {'mazmorra': 'Mazmorra', 'cripta': 'Cripta', 'cueva': 'Cueva'};
+  static const kinds = {
+    'mazmorra': 'Mazmorra',
+    'cripta': 'Cripta',
+    'cueva': 'Cueva',
+    'ruinas': 'Ruinas',
+    'pueblo': 'Pueblo',
+  };
 
   static String normalizeKind(String k) {
     final n = k.toLowerCase();
     if (n.contains('cuev') || n.contains('caverna') || n.contains('gruta') || n.contains('mina')) return 'cueva';
     if (n.contains('cript') || n.contains('tumba') || n.contains('templo') || n.contains('catacumba')) return 'cripta';
+    if (n.contains('pueblo') || n.contains('ciudad') || n.contains('aldea') || n.contains('villa') ||
+        n.contains('poblado') || n.contains('burgo') || n.contains('villorrio') || n.contains('capital')) {
+      return 'pueblo';
+    }
+    if (n.contains('ruina') || n.contains('laberint') || n.contains('cloaca') || n.contains('alcantarill') ||
+        n.contains('derruid')) {
+      return 'ruinas';
+    }
     return 'mazmorra';
   }
 
@@ -54,6 +86,10 @@ class DungeonGenerator {
         return _cave(seed, width, height, rooms ?? 7);
       case 'cripta':
         return _crypt(seed, width, height);
+      case 'ruinas':
+        return RuinsGenerator.generate(seed, width, height);
+      case 'pueblo':
+        return TownGenerator.generate(seed, width, height);
       default:
         return _dungeon(seed, width, height, rooms ?? 12);
     }
@@ -277,6 +313,11 @@ class DungeonGenerator {
       _corridor(m, r, m.rooms[a], m.rooms[b]);
       m.links.add((a, b));
     }
+    placeDoors(m);
+    _number(m);
+  }
+
+  static void placeDoors(DungeonMap m) {
     // Puertas: casillas de pasillo que entran en perpendicular a una sala
     // (no las de un pasillo que corre pegado a la pared).
     bool walled(int x, int y) => m.at(x, y) == Tile.wall;
@@ -296,7 +337,6 @@ class DungeonGenerator {
         }
       }
     }
-    _number(m);
   }
 
   static void _corridor(DungeonMap m, Random r, Room a, Room b) {
@@ -329,6 +369,10 @@ class DungeonGenerator {
 
   /// Numera las salas de izquierda a derecha y de arriba abajo, como en los
   /// módulos clásicos.
+  static void number(DungeonMap m) => _number(m);
+
+  static void decorate(DungeonMap m, Random r) => _decorate(m, r);
+
   static void _number(DungeonMap m) {
     final order = [...m.rooms]..sort((a, b) {
         final band = (a.cy ~/ 10).compareTo(b.cy ~/ 10);

@@ -10,6 +10,7 @@ import '../ai/model_catalog.dart';
 import '../app_services.dart';
 import '../core/scenes.dart';
 import '../core/settings.dart';
+import '../voice/speech_input.dart';
 import '../voice/voice_packs.dart';
 import 'widgets/file_utils.dart';
 import 'widgets/scene_panel.dart';
@@ -23,6 +24,7 @@ class SettingsScreen extends StatelessWidget {
     final st = context.watch<AppSettings>();
     final llm = context.watch<LlamaService>();
     final packs = context.watch<VoicePackManager>();
+    final speech = context.watch<SpeechInput>();
     final s = context.read<AppServices>();
     final t = Theme.of(context).textTheme;
 
@@ -233,6 +235,49 @@ class SettingsScreen extends StatelessWidget {
           ),
         ),
 
+        header('Jugar hablando'),
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 0, 16, 4),
+          child: Text('Pulsa el micrófono en la partida, habla y vuelve a pulsar: el texto aparece en la caja para '
+              'revisarlo. El reconocimiento es local (Whisper con sherpa-onnx), sin Internet una vez descargado.'),
+        ),
+        for (final info in speechModelCatalog) _speechTile(speech, st, info),
+        SwitchListTile(
+          title: const Text('Enviar al director nada más reconocer la voz'),
+          subtitle: const Text('Apagado: el texto queda en la caja para corregirlo antes de enviar'),
+          value: st.speechAutoSend,
+          onChanged: (v) => st.speechAutoSend = v,
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: OutlinedButton.icon(
+            icon: const Icon(Icons.archive),
+            label: const Text('Instalar modelo desde archivo .tar.bz2'),
+            onPressed: () async {
+              final f = await FilePicker.pickFile(type: FileType.any);
+              if (f == null) return;
+              final path = await localPathFor(f, s.dataRoot.tmp);
+              if (path != null) await speech.installFromFile(path);
+            },
+          ),
+        ),
+
+        header('El mundo'),
+        ListTile(
+          leading: const Icon(Icons.hourglass_top),
+          title: const Text('El mundo avanza solo'),
+          subtitle: Text(st.worldEvery == 0
+              ? 'Apagado: las tramas sólo avanzan con saltos de tiempo o a mano'
+              : 'Cada ${st.worldEvery} turnos las facciones y el villano tiran dados para avanzar sus planes'),
+          trailing: DropdownButton<int>(
+            value: [0, 2, 3, 4, 6, 8, 12].contains(st.worldEvery) ? st.worldEvery : 4,
+            items: [
+              for (final n in [0, 2, 3, 4, 6, 8, 12]) DropdownMenuItem(value: n, child: Text(n == 0 ? 'Nunca' : 'Cada $n')),
+            ],
+            onChanged: (v) => st.worldEvery = v ?? 4,
+          ),
+        ),
+
         header('Música'),
         SwitchListTile(
           title: const Text('Poner sola la música que sugiere la IA'),
@@ -326,6 +371,32 @@ class SettingsScreen extends StatelessWidget {
           : installed
               ? IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => packs.remove(info.id))
               : IconButton(icon: const Icon(Icons.download), onPressed: () => packs.install(info)),
+    );
+  }
+
+  Widget _speechTile(SpeechInput speech, AppSettings st, SpeechModelInfo info) {
+    final installed = speech.installed.contains(info.id);
+    final downloading = speech.downloading.containsKey(info.id);
+    final err = speech.errors[info.id];
+    final active = speech.activeModel == info.id;
+    return ListTile(
+      leading: installed
+          ? IconButton(
+              tooltip: active ? 'En uso' : 'Usar este',
+              icon: Icon(active ? Icons.radio_button_checked : Icons.radio_button_off),
+              onPressed: () {
+                st.speechModel = info.id;
+                speech.select(info.id);
+              },
+            )
+          : const Icon(Icons.mic_none),
+      title: Text(info.label),
+      subtitle: Text('${info.description} · ${info.sizeMb} MB${err == null ? '' : '\nError: $err'}'),
+      trailing: downloading
+          ? SizedBox(width: 40, height: 40, child: CircularProgressIndicator(value: speech.downloading[info.id]))
+          : installed
+              ? IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => speech.remove(info.id))
+              : IconButton(icon: const Icon(Icons.download), onPressed: () => speech.install(info)),
     );
   }
 

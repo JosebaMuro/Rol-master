@@ -25,7 +25,11 @@ class StoryPackage {
     final c = db.campaign(campaignId)!;
     final archive = Archive();
     final bible = Map<String, dynamic>.from(c.bible);
-    if (!includeProgress) bible.remove(_memoryPointerKey);
+    if (!includeProgress) {
+      for (final k in [_memoryPointerKey, '_turnos', '_eventosMundo', '_escena']) {
+        bible.remove(k);
+      }
+    }
 
     final maps = <Map<String, dynamic>>[];
     for (final m in db.maps(campaignId: campaignId)) {
@@ -68,13 +72,51 @@ class StoryPackage {
       ],
       'npcs': [
         for (final n in db.npcs(campaignId))
-          {'name': n.name, 'description': n.description, 'voiceHint': n.voiceHint, 'voice': n.voice.toJson()},
+          {
+            'name': n.name,
+            'description': n.description,
+            'voiceHint': n.voiceHint,
+            'voice': n.voice.toJson(),
+            'goal': n.goal,
+            if (includeProgress) 'attitude': n.attitude,
+            if (includeProgress) 'knows': n.knows,
+          },
       ],
       'entities': [
         for (final e in db.entities(campaignId)) {'name': e.name, 'type': e.type, 'description': e.description},
       ],
       'relations': [
-        for (final r in db.relations(campaignId)) {'source': r.sourceName, 'relation': r.relation, 'target': r.targetName},
+        for (final r in db.relations(campaignId, ended: includeProgress ? null : false))
+          {
+            'source': r.sourceName,
+            'relation': r.relation,
+            'target': r.targetName,
+            if (includeProgress) 'ended': r.ended,
+            if (includeProgress) 'since': r.sinceSession,
+            if (includeProgress) 'until': r.untilSession,
+          },
+      ],
+      'characters': includeProgress
+          ? [for (final ch in db.charStates(campaignId)) {'name': ch.name, ...ch.toJson()}]
+          : [],
+      'pins': includeProgress ? [for (final pin in db.pins(campaignId)) pin.text] : [],
+      'threads': includeProgress
+          ? [
+              for (final t in db.plotThreads(campaignId))
+                {'kind': t.kind, 'text': t.text, 'open': t.open, 'session': t.session},
+            ]
+          : [],
+      'clocks': [
+        for (final k in db.clocks(campaignId))
+          {
+            'name': k.name,
+            'owner': k.owner,
+            'segments': k.segments,
+            'filled': includeProgress ? k.filled : 0,
+            'consequence': k.consequence,
+            'active': includeProgress ? k.active : true,
+            'stance': includeProgress ? k.stance : 'desconocen',
+          },
       ],
       'chunks': [
         for (final ch in db.chunks(campaignId))
@@ -188,7 +230,15 @@ class StoryPackage {
           description: (n['description'] ?? '').toString(),
           voiceHint: (n['voiceHint'] ?? '').toString(),
           voice: VoiceProfile.fromJson(((n['voice'] as Map?) ?? {}).cast<String, dynamic>()),
+          goal: (n['goal'] ?? '').toString(),
         ));
+        final saved = db.npcByName(id, (n['name'] ?? '').toString());
+        if (saved != null && (n['attitude'] != null || n['knows'] != null)) {
+          saved
+            ..attitude = (n['attitude'] as num?)?.toInt() ?? 0
+            ..knows = ((n['knows'] as List?) ?? const []).map((e) => e.toString()).toList();
+          db.updateNpcState(saved);
+        }
       }
       for (final e in _maps(json['entities'])) {
         db.upsertEntity(id, (e['name'] ?? '').toString(),
@@ -197,7 +247,41 @@ class StoryPackage {
       for (final r in _maps(json['relations'])) {
         final s = db.upsertEntity(id, (r['source'] ?? '').toString());
         final t = db.upsertEntity(id, (r['target'] ?? '').toString());
-        db.addRelation(id, s.id!, (r['relation'] ?? '').toString(), t.id!);
+        final rid = db.addRelation(id, s.id!, (r['relation'] ?? '').toString(), t.id!,
+            session: (r['since'] as num?)?.toInt() ?? 0);
+        if (rid != null && r['ended'] == true) db.endRelation(rid, session: (r['until'] as num?)?.toInt() ?? 0);
+      }
+      for (final ch in _maps(json['characters'])) {
+        final name = (ch['name'] ?? '').toString();
+        if (name.isNotEmpty) db.saveCharState(CharacterState.fromJson(id, name, ch));
+      }
+      for (final pin in (json['pins'] as List? ?? const [])) {
+        if ('$pin'.trim().isNotEmpty) db.addPin(PinnedMemory(campaignId: id, text: '$pin'));
+      }
+      for (final t in _maps(json['threads'])) {
+        db.addPlotThread(PlotThread(
+          campaignId: id,
+          kind: (t['kind'] ?? 'pendiente').toString(),
+          text: (t['text'] ?? '').toString(),
+          open: t['open'] != false,
+          session: (t['session'] as num?)?.toInt() ?? 0,
+        ));
+      }
+      for (final k in _maps(json['clocks'])) {
+        db.saveClock(WorldClock(
+          campaignId: id,
+          name: (k['name'] ?? '').toString(),
+          owner: (k['owner'] ?? '').toString(),
+          segments: (k['segments'] as num?)?.toInt() ?? 6,
+          filled: (k['filled'] as num?)?.toInt() ?? 0,
+          consequence: (k['consequence'] ?? '').toString(),
+          active: k['active'] != false,
+          stance: (k['stance'] ?? 'desconocen').toString(),
+        ));
+      }
+      if (_maps(json['clocks']).isNotEmpty && c.bible['_relojes'] != true) {
+        c.bible['_relojes'] = true;
+        db.updateCampaign(c);
       }
       for (final ch in _maps(json['chunks'])) {
         final emb = ch['embedding'];
