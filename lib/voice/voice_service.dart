@@ -12,6 +12,7 @@ import '../core/models.dart';
 import '../core/settings.dart';
 import 'neural_tts.dart';
 import 'voice_packs.dart';
+import 'win_native.dart';
 import 'windows_tts.dart';
 
 /// Línea a locutar con la voz que le corresponde.
@@ -41,8 +42,14 @@ class VoiceService extends ChangeNotifier {
 
   List<Map<String, String>> systemVoices = [];
   bool speaking = false;
-  /// Último fallo de la voz neuronal (se muestra al probar voces).
+  /// Último fallo de la voz (se muestra al probar voces).
   String? lastError;
+
+  void _setError(String? e) {
+    if (lastError == e) return;
+    lastError = e;
+    notifyListeners();
+  }
   String? currentSpeaker;
   int _generation = 0;
   Completer<void>? _playing;
@@ -58,6 +65,7 @@ class VoiceService extends ChangeNotifier {
       final all = await win.voices();
       final es = all.where((v) => (v['locale'] ?? '').toLowerCase().startsWith('es')).toList();
       systemVoices = es.isNotEmpty ? es : all;
+      if (all.isEmpty && win.lastError != null) lastError = 'Voz del sistema: ${win.lastError}';
       notifyListeners();
       return;
     }
@@ -193,19 +201,30 @@ class VoiceService extends ChangeNotifier {
     if (v.engine == 'neural' && packs.byId(v.neuralPack) != null) {
       try {
         await _speakNeural(text, v);
-        if (lastError != null) {
-          lastError = null;
-          notifyListeners();
-        }
+        _setError(null);
         return;
       } catch (e) {
         debugPrint('Voz neuronal falló, uso la del sistema: $e');
-        lastError = 'La voz neuronal falló y se usó la del sistema: ${'$e'.replaceFirst('Exception: ', '')}';
-        notifyListeners();
+        final neural = 'La voz neuronal falló: ${_msg(e)}';
+        try {
+          await _speakSystem(text, v);
+          _setError('$neural. Se usó la voz del sistema.');
+        } catch (e2) {
+          _setError('$neural. Y la del sistema también: ${_msg(e2)}');
+        }
+        return;
       }
     }
-    await _speakSystem(text, v);
+    try {
+      await _speakSystem(text, v);
+      _setError(null);
+    } catch (e) {
+      debugPrint('Voz del sistema falló: $e');
+      _setError('La voz del sistema falló: ${_msg(e)}');
+    }
   }
+
+  static String _msg(Object e) => '$e'.replaceFirst('Exception: ', '');
 
   Future<void> _speakSystem(String text, VoiceProfile v) async {
     final gen = _generation;
@@ -223,8 +242,6 @@ class VoiceService extends ChangeNotifier {
           rate: v.rate * 2, // 0,5 en el perfil = velocidad normal
         );
         await _playFile(out, gen);
-      } catch (e) {
-        debugPrint('Voz del sistema falló: $e');
       } finally {
         try {
           File(out).deleteSync();
@@ -261,8 +278,22 @@ class VoiceService extends ChangeNotifier {
     }
     Directory(tempDir).createSync(recursive: true);
     final out = p.join(tempDir, 'tts_${DateTime.now().microsecondsSinceEpoch}.wav');
+    // En Windows sherpa-onnx/espeak-ng no abren rutas con tildes o eñes: se
+    // les pasan las rutas cortas (8.3), que son sólo ASCII.
+    final native = Platform.isWindows
+        ? InstalledVoicePack(
+            id: pack.id,
+            kind: pack.kind,
+            dir: WinNative.safePath(pack.dir),
+            files: {
+              for (final e in pack.files.entries) e.key: e.value.split(',').map(WinNative.safePath).join(','),
+            },
+            numSpeakers: pack.numSpeakers,
+          )
+        : pack;
     try {
-      final n = await _neural.synthesize(pack: pack, text: text, speakerId: v.speakerId, speed: v.speed, outPath: out);
+      final n = await _neural.synthesize(
+          pack: native, text: text, speakerId: v.speakerId, speed: v.speed, outPath: WinNative.safePath(out));
       packs.setSpeakers(pack.id, n);
       await _playFile(out, gen);
     } finally {
@@ -275,6 +306,11 @@ class VoiceService extends ChangeNotifier {
   Future<void> _playFile(String out, int gen) async {
     if (gen != _generation) return; // se paró mientras se generaba
     if (!File(out).existsSync()) throw Exception('No se generó el audio');
+    if (Platform.isWindows) {
+      // PlaySound de Windows: no depende de Media Foundation.
+      await WinNative.play(out);
+      return;
+    }
     final done = Completer<void>();
     _playing = done;
     final sub = _player.onPlayerComplete.listen((_) {
@@ -294,6 +330,7 @@ class VoiceService extends ChangeNotifier {
     try {
       await _tts?.stop();
     } catch (_) {}
+    if (Platform.isWindows) WinNative.stop();
     try {
       await _player.stop();
     } catch (_) {}

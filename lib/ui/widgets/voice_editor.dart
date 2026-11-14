@@ -77,7 +77,7 @@ class VoiceEditor extends StatelessWidget {
           onPressed: () => vs.speaking ? vs.stop() : vs.speakAll([SpeechLine(sample, v)]),
         ),
       ),
-      if (v.engine == 'neural' && vs.lastError != null)
+      if (vs.lastError != null)
         Padding(
           padding: const EdgeInsets.only(top: 6),
           child: Text(vs.lastError!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
