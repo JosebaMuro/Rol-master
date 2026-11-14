@@ -108,6 +108,22 @@ class StoryPackage {
             ]
           : [],
       'maps': maps,
+      // Documentación propia de la campaña (la global se queda en cada equipo).
+      'documents': [
+        for (final d in db.documents().where((d) => d.campaignId == campaignId))
+          {
+            'title': d.title,
+            'kind': d.kind,
+            'chars': d.chars,
+            'chunks': [
+              for (final r in db.db.select('SELECT text, embedding FROM doc_chunks WHERE doc_id = ?', [d.id]))
+                {
+                  'text': r['text'],
+                  if (r['embedding'] != null) 'embedding': base64Encode(r['embedding'] as Uint8List),
+                },
+            ],
+          },
+      ],
     };
     archive.addFile(ArchiveFile.string('historia.json', const JsonEncoder.withIndent(' ').convert(json)));
     return ZipEncoder().encodeBytes(archive);
@@ -236,6 +252,21 @@ class StoryPackage {
           keyJson: jsonEncode(m['key'] ?? []),
           createdAt: DateTime.tryParse('${m['createdAt']}'),
         ));
+      }
+      for (final d in _maps(json['documents'])) {
+        final doc = db.addDocument(DocumentRecord(
+          campaignId: id,
+          title: (d['title'] ?? 'Documento').toString(),
+          path: '',
+          kind: (d['kind'] ?? '').toString(),
+          chars: (d['chars'] as num?)?.toInt() ?? 0,
+        ));
+        final chunks = _maps(d['chunks']).toList();
+        db.addDocChunks(
+          doc.id!,
+          [for (final ch in chunks) (ch['text'] ?? '').toString()],
+          [for (final ch in chunks) ch['embedding'] is String ? AppDatabase.decodeVector(base64Decode(ch['embedding'] as String)) : null],
+        );
       }
       db.db.execute('COMMIT');
     } catch (_) {

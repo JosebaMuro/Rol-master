@@ -24,7 +24,7 @@ class AppDatabase {
   String _store(String path) => root?.toStored(path) ?? path;
   String _resolve(String path) => root?.resolve(path) ?? path;
 
-  static const int schemaVersion = 1;
+  static const int schemaVersion = 2;
 
   void _migrate() {
     db.execute('PRAGMA foreign_keys = ON');
@@ -135,8 +135,30 @@ CREATE TABLE IF NOT EXISTS maps (
 );
 ''');
       _seedSituations();
-      db.execute('PRAGMA user_version = $schemaVersion');
     }
+    if (v < 2) {
+      // Documentación que la IA aprende (reglamentos, ambientación, apuntes…).
+      // campaign_id NULL = sirve para todas las campañas.
+      db.execute('''
+CREATE TABLE IF NOT EXISTS documents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campaign_id INTEGER REFERENCES campaigns(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  path TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL DEFAULT '',
+  chars INTEGER NOT NULL DEFAULT 0,
+  added_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS doc_chunks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  doc_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  embedding BLOB
+);
+CREATE INDEX IF NOT EXISTS idx_doc_chunks_doc ON doc_chunks(doc_id);
+''');
+    }
+    if (v < schemaVersion) db.execute('PRAGMA user_version = $schemaVersion');
   }
 
   static const defaultSituations = <(String, String)>[
@@ -492,6 +514,72 @@ CREATE TABLE IF NOT EXISTS maps (
         'SELECT COUNT(*) AS n FROM chunks WHERE campaign_id = ?${onlyMissingEmbedding ? ' AND embedding IS NULL' : ''}',
         [campaignId],
       ).first['n'] as int;
+
+  // ----------------------------------------------------------- documentación
+  DocumentRecord addDocument(DocumentRecord d) {
+    db.execute(
+      'INSERT INTO documents (campaign_id, title, path, kind, chars, added_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [d.campaignId, d.title, _store(d.path), d.kind, d.chars, d.addedAt.toIso8601String()],
+    );
+    d.id = db.lastInsertRowId;
+    return d;
+  }
+
+  /// Todos los documentos, o los que ve una campaña (los globales y los suyos).
+  List<DocumentRecord> documents({int? campaignId, bool all = true}) => db
+      .select(
+        'SELECT d.*, (SELECT COUNT(*) FROM doc_chunks c WHERE c.doc_id = d.id) AS n, '
+        '(SELECT COUNT(*) FROM doc_chunks c WHERE c.doc_id = d.id AND c.embedding IS NULL) AS pending '
+        'FROM documents d ${all ? '' : 'WHERE d.campaign_id IS NULL OR d.campaign_id = ?'} ORDER BY d.added_at DESC',
+        all ? const [] : [campaignId],
+      )
+      .map((r) => DocumentRecord.fromRow(r, path: _resolve(r['path'] as String)))
+      .toList();
+
+  void deleteDocument(int id) => db.execute('DELETE FROM documents WHERE id = ?', [id]);
+
+  void addDocChunks(int docId, List<String> texts, List<List<double>?> embeddings) {
+    final st = db.prepare('INSERT INTO doc_chunks (doc_id, text, embedding) VALUES (?, ?, ?)');
+    final own = db.autocommit; // si ya hay una transacción abierta, se usa esa
+    if (own) db.execute('BEGIN');
+    try {
+      for (var i = 0; i < texts.length; i++) {
+        final e = i < embeddings.length ? embeddings[i] : null;
+        st.execute([docId, texts[i], e == null ? null : encodeVector(e)]);
+      }
+      if (own) db.execute('COMMIT');
+    } catch (_) {
+      if (own) db.execute('ROLLBACK');
+      rethrow;
+    } finally {
+      st.close();
+    }
+  }
+
+  /// Fragmentos de documentación visibles para una campaña (null = sólo los globales),
+  /// con el formato de la memoria RAG.
+  List<LoreChunk> docChunks(int? campaignId, {bool onlyMissingEmbedding = false}) => db
+      .select(
+        'SELECT c.id, c.text, c.embedding, d.title FROM doc_chunks c JOIN documents d ON d.id = c.doc_id '
+        'WHERE (d.campaign_id IS NULL OR d.campaign_id = ?)${onlyMissingEmbedding ? ' AND c.embedding IS NULL' : ''}',
+        [campaignId ?? -1],
+      )
+      .map((r) => LoreChunk(
+            id: r['id'] as int,
+            campaignId: campaignId ?? 0,
+            source: 'doc · ${r['title']}',
+            text: r['text'] as String,
+            embedding: r['embedding'] == null ? null : decodeVector(r['embedding'] as Uint8List),
+          ))
+      .toList();
+
+  List<LoreChunk> allDocChunksMissingEmbedding() => db
+      .select('SELECT id, text FROM doc_chunks WHERE embedding IS NULL')
+      .map((r) => LoreChunk(id: r['id'] as int, campaignId: 0, source: 'doc', text: r['text'] as String))
+      .toList();
+
+  void setDocChunkEmbedding(int id, List<double> v) =>
+      db.execute('UPDATE doc_chunks SET embedding = ? WHERE id = ?', [encodeVector(v), id]);
 
   // ------------------------------------------------------------------- music
   List<Situation> situations() =>

@@ -296,6 +296,9 @@ class Director {
     final query = '$playerText\n$recentForQuery';
     final graphFacts = graph.contextFor(c.id!, query);
     final hits = await rag.search(c.id!, playerText, k: 5);
+    // La documentación (reglas, ambientación) siempre tiene hueco propio.
+    final seen = hits.map((h) => h.chunk.text).toSet();
+    hits.addAll((await rag.searchDocs(query, campaignId: c.id, k: 3)).where((h) => seen.add(h.chunk.text)));
     final ragText = hits.map((h) => '- (${h.chunk.source}) ${h.chunk.text.replaceAll('\n', ' ')}').join('\n');
     final lastSession = db.sessions(c.id!).where((s) => s.summary.isNotEmpty).lastOrNull;
 

@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import 'campaigns_screen.dart';
+import 'docs_screen.dart';
 import 'logs_screen.dart';
 import 'maps_screen.dart';
 import 'music_screen.dart';
@@ -22,6 +23,7 @@ class _HomeShellState extends State<HomeShell> {
     (Icons.map, 'Mapas'),
     (Icons.library_music, 'Música'),
     (Icons.history_edu, 'Registro'),
+    (Icons.menu_book, 'Docs'),
     (Icons.settings, 'Ajustes'),
   ];
 
@@ -30,6 +32,7 @@ class _HomeShellState extends State<HomeShell> {
         1 => const MapsScreen(),
         2 => const MusicScreen(),
         3 => const LogsScreen(),
+        4 => const DocsScreen(),
         _ => const SettingsScreen(),
       };
 

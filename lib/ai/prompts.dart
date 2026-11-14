@@ -104,6 +104,7 @@ FORMATO OBLIGATORIO
     if (ragSnippets.isNotEmpty) {
       b.writeln();
       b.writeln('=== RECUERDOS RELEVANTES ===');
+      b.writeln('(Los marcados «doc ·» son documentación de referencia del grupo: reglas y ambientación. Respétala.)');
       b.writeln(ragSnippets);
     }
     return b.toString();
@@ -194,6 +195,7 @@ FORMATO OBLIGATORIO
     required String ideas,
     required List<CampaignPlayer> players,
     String title = '',
+    String reference = '',
   }) {
     final ps = players
         .map((p) => '${p.playerName} (${p.characterName.isEmpty ? 'personaje por definir' : p.characterName}'
@@ -206,7 +208,7 @@ Diseña una campaña de rol COMPLETA y COMPLEJA en español.
 - Número de actos: $acts
 ${title.isEmpty ? '' : '- Título deseado: $title\n'}- Jugadores y personajes: $ps
 - Ideas del grupo: ${ideas.isEmpty ? '(libre)' : ideas}
-
+${reference.isEmpty ? '' : '- Documentación de referencia del grupo (respeta su ambientación y reglas):\n$reference\n'}
 Requisitos: un antagonista con motivación comprensible, $acts actos con objetivo y giro argumental cada uno, entre 5 y 8 PNJ memorables (cada uno con secreto y una descripción breve de su voz), 4-6 lugares, 2-3 facciones con intereses en conflicto, secretos, pistas que conduzcan a ellos, varios finales posibles según lo que hagan los jugadores, y una escena de apertura ("opening") de 150-250 palabras que enganche a los personajes de los jugadores. Teje los trasfondos de los personajes en la trama.
 ''';
   }

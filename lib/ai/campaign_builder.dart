@@ -31,7 +31,9 @@ class CampaignBuilder {
     String title = '',
     void Function(String step)? onStep,
   }) async {
-    onStep?.call('Inventando la historia, el villano y los actos…');
+    final refs = await rag.searchDocs('$theme $tone $ideas $title', k: 6);
+    final reference = refs.map((h) => '  · (${h.chunk.source.replaceFirst('doc · ', '')}) ${h.chunk.text.replaceAll('\n', ' ')}').join('\n');
+    onStep?.call(refs.isEmpty ? 'Inventando la historia, el villano y los actos…' : 'Inventando la historia con tu documentación…');
     final bible = await llm.json(
       [
         const LlmMessage.system(
@@ -45,6 +47,7 @@ class CampaignBuilder {
           ideas: ideas,
           players: players,
           title: title,
+          reference: reference,
         )),
       ],
       schema: Prompts.campaignSchema,

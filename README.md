@@ -17,6 +17,7 @@ La IA inventa campañas completas, narra, interpreta a los PNJ con **voces disti
 | Mapas | Mazmorras, criptas simétricas y cuevas procedurales en estilo pergamino, con salas numeradas y leyenda escrita por la IA. Se generan solos cuando el director entra en un lugar (`[[mapa: …]]`) o a mano. Visor a pantalla completa con zoom. |
 | Registro de partidas | Pestaña *Registro* por jugador y por tema, lector de sesiones, exportación a Markdown y preguntas a la IA sobre partidas pasadas ("¿qué nos dijo el herrero en la sesión 2?"). Además se escribe en `datos/registros/<Jugador>/<Tema>/<Campaña>/sesion-NN.md`. |
 | Pantalla de partida | Arriba, un panel de imagen; abajo, el texto, a media pantalla cada uno. Asignas una imagen de fondo a cada tipo de lugar (mazmorra, cripta, cueva, castillo, ciudad, taberna, templo, bosque…) y cambia sola cuando el director cambia de lugar (`[[escena: …]]`). También se puede fijar una escena a mano o ver ahí el mapa generado. El panel se oculta con un botón. |
+| Documentación que aprende | Pestaña **Docs**: añade reglamentos, ambientaciones, módulos o apuntes (PDF, Word, EPUB, ODT, HTML, RTF, TXT, Markdown…), para todas las campañas o sólo para una. La IA los trocea en su memoria (RAG): el director los consulta en cada turno y al crear campañas, y puedes preguntarles directamente. Igual en Windows y Android, sin Internet; las copias quedan en `datos/documentos`. |
 | Exportar e importar historias | Menú ⋮ de la campaña → *Exportar historia* (con las partidas jugadas o sin jugar, para que otro grupo la empiece) a un único fichero `.rolpack`. En **Campañas** → 📂 se importa como una campaña nueva, con biblia, PNJ y voces, grafo, memoria, mapas y sesiones. |
 
 ## Motores de inferencia incluidos
@@ -51,6 +52,7 @@ datos/
   voces/           voces neuronales
   musica/<Situación>/  copias de tus pistas, ordenadas por situación
   fondos/          imágenes de fondo de cada tipo de lugar
+  documentos/      copias de la documentación que ha aprendido la IA
   mapas/           imágenes de los mapas
   registros/       registros de partida en Markdown
   exportaciones/   historias .rolpack y registros exportados

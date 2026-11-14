@@ -11,6 +11,7 @@ import 'ai/memory/rag.dart';
 import 'core/db.dart';
 import 'core/portable.dart';
 import 'core/settings.dart';
+import 'docs/doc_library.dart';
 import 'logs/log_service.dart';
 import 'maps/map_service.dart';
 import 'music/music_service.dart';
@@ -30,6 +31,7 @@ class AppServices {
     required this.music,
     required this.maps,
     required this.logs,
+    required this.docs,
     required this.dataRoot,
   });
 
@@ -43,6 +45,7 @@ class AppServices {
   final MusicService music;
   final MapService maps;
   final LogService logs;
+  final DocLibrary docs;
   /// Carpeta única con todos los datos (portable).
   final DataRoot dataRoot;
   String get dataDir => dataRoot.root;
@@ -88,6 +91,7 @@ class AppServices {
       music: music,
       maps: maps,
       logs: logs,
+      docs: DocLibrary(db, rag, llm, root),
       dataRoot: root,
     );
     // Carga en segundo plano para no retrasar el arranque.

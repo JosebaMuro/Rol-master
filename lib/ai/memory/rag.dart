@@ -23,7 +23,11 @@ class RagMemory {
 
   void invalidate(int campaignId) => _cache.remove(campaignId);
 
-  List<LoreChunk> _chunks(int campaignId) => _cache[campaignId] ??= db.chunks(campaignId);
+  /// Tras añadir o quitar documentación, que afecta a todas las campañas.
+  void invalidateAll() => _cache.clear();
+
+  /// Memoria de la campaña más la documentación que ve (global y propia).
+  List<LoreChunk> _chunks(int campaignId) => _cache[campaignId] ??= [...db.chunks(campaignId), ...db.docChunks(campaignId)];
 
   /// Divide un texto largo en fragmentos de ~[size] caracteres respetando
   /// párrafos y frases.
@@ -84,8 +88,13 @@ class RagMemory {
     return n;
   }
 
-  Future<List<RagHit>> search(int campaignId, String query, {int k = 5}) async {
-    final all = _chunks(campaignId);
+  Future<List<RagHit>> search(int campaignId, String query, {int k = 5}) => searchIn(_chunks(campaignId), query, k: k);
+
+  /// Busca sólo en la documentación (global, o global + la de [campaignId]).
+  Future<List<RagHit>> searchDocs(String query, {int? campaignId, int k = 6}) =>
+      searchIn(db.docChunks(campaignId), query, k: k);
+
+  Future<List<RagHit>> searchIn(List<LoreChunk> all, String query, {int k = 5}) async {
     if (all.isEmpty || query.trim().isEmpty) return const [];
     final qv = await llm.embed(query, query: true);
     final lexical = _bm25(all, query);

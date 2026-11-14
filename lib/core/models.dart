@@ -387,3 +387,41 @@ class LoreChunk {
   final String text;
   List<double>? embedding;
 }
+
+/// Documento que la IA ha "aprendido" (indexado en su memoria).
+class DocumentRecord {
+  DocumentRecord({
+    this.id,
+    this.campaignId,
+    required this.title,
+    required this.path,
+    required this.kind,
+    this.chars = 0,
+    this.chunks = 0,
+    this.pendingEmbeddings = 0,
+    DateTime? addedAt,
+  }) : addedAt = addedAt ?? DateTime.now();
+
+  factory DocumentRecord.fromRow(Map<String, Object?> r, {required String path}) => DocumentRecord(
+        id: r['id'] as int,
+        campaignId: r['campaign_id'] as int?,
+        title: r['title'] as String,
+        path: path,
+        kind: r['kind'] as String,
+        chars: r['chars'] as int,
+        chunks: (r['n'] as int?) ?? 0,
+        pendingEmbeddings: (r['pending'] as int?) ?? 0,
+        addedAt: DateTime.tryParse(r['added_at'] as String),
+      );
+
+  int? id;
+  /// null = documentación para todas las campañas.
+  final int? campaignId;
+  final String title;
+  final String path;
+  final String kind;
+  final int chars;
+  final int chunks;
+  final int pendingEmbeddings;
+  final DateTime addedAt;
+}
