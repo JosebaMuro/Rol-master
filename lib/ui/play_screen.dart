@@ -467,6 +467,17 @@ class _PlayScreenState extends State<PlayScreen> {
             )
           else if (voices.speaking)
             _speakingBar(voices),
+          if (voices.lastError != null)
+            Material(
+              color: Theme.of(context).colorScheme.errorContainer,
+              child: ListTile(
+                dense: true,
+                leading: const Icon(Icons.volume_off),
+                title: Text(voices.lastError!, maxLines: 3, overflow: TextOverflow.ellipsis),
+                subtitle: const Text('Ajustes › Voces › Diagnóstico de voces da más detalle'),
+                trailing: IconButton(icon: const Icon(Icons.close), onPressed: voices.clearError),
+              ),
+            ),
           // Mitad inferior: texto de la partida.
           Expanded(
             child: Column(

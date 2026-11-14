@@ -37,10 +37,14 @@ class WinNative {
   static Future<void> play(String path) async {
     stop();
     final duration = wavDuration(File(path).readAsBytesSync());
+    // El nombre se libera al terminar: con SND_ASYNC Windows puede leerlo
+    // después de volver de PlaySound.
     final name = path.toNativeUtf16();
     final ok = _playSound(name, 0, _sndFilename | _sndAsync | _sndNoDefault);
-    malloc.free(name);
-    if (ok == 0) throw Exception('Windows no pudo reproducir el audio (¿hay altavoces o auriculares activos?)');
+    if (ok == 0) {
+      malloc.free(name);
+      throw Exception('Windows no pudo reproducir el audio (¿hay altavoces o auriculares activos?)');
+    }
     final done = Completer<void>();
     _current = done;
     final timer = Timer(duration + const Duration(milliseconds: 200), () {
@@ -49,6 +53,8 @@ class WinNative {
     await done.future;
     timer.cancel();
     if (identical(_current, done)) _current = null;
+    // Libera el nombre en cuanto el sonido ya no lo usa.
+    Timer(const Duration(milliseconds: 500), () => malloc.free(name));
   }
 
   /// Corta el audio que se esté reproduciendo.

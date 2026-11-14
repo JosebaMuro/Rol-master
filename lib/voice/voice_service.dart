@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
@@ -46,9 +47,22 @@ class VoiceService extends ChangeNotifier {
   String? lastError;
 
   void _setError(String? e) {
+    if (e != null) _log('ERROR: $e');
     if (lastError == e) return;
     lastError = e;
     notifyListeners();
+  }
+
+  void clearError() => _setError(null);
+
+  /// Registro de lo que hace la voz (para el diagnóstico que se puede copiar).
+  final List<String> log = [];
+
+  void _log(String s) {
+    final t = DateTime.now().toIso8601String().substring(11, 23);
+    log.add('$t $s');
+    if (log.length > 400) log.removeRange(0, log.length - 400);
+    debugPrint('Voz: $s');
   }
   String? currentSpeaker;
   int _generation = 0;
@@ -177,7 +191,15 @@ class VoiceService extends ChangeNotifier {
   static String _clean(String s) => s.replaceAll(RegExp(r'[*_#>`]'), '').replaceAll(RegExp(r'\s+'), ' ').trim();
 
   Future<void> speakAll(List<SpeechLine> lines) async {
-    if (!settings.voiceEnabled || lines.isEmpty) return;
+    if (!settings.voiceEnabled) {
+      _log('speakAll ignorado: voces desactivadas en Ajustes');
+      return;
+    }
+    if (lines.isEmpty) {
+      _log('speakAll sin líneas que leer');
+      return;
+    }
+    _log('speakAll: ${lines.length} línea(s)');
     await stop();
     final gen = ++_generation;
     _setSpeaking(true);
@@ -198,6 +220,10 @@ class VoiceService extends ChangeNotifier {
 
   Future<void> speak(String text, VoiceProfile v) async {
     if (text.trim().isEmpty) return;
+    _log('speak motor=${v.engine} pack=${v.neuralPack} voz="${v.systemVoice}" texto=${text.length} car.');
+    if (v.engine == 'neural' && packs.byId(v.neuralPack) == null) {
+      _log('el paquete neuronal "${v.neuralPack}" no está instalado; se usa la voz del sistema');
+    }
     if (v.engine == 'neural' && packs.byId(v.neuralPack) != null) {
       try {
         await _speakNeural(text, v);
@@ -241,6 +267,7 @@ class VoiceService extends ChangeNotifier {
           pitch: v.pitch,
           rate: v.rate * 2, // 0,5 en el perfil = velocidad normal
         );
+        _log('voz de Windows sintetizada: ${_size(out)}');
         await _playFile(out, gen);
       } finally {
         try {
@@ -258,7 +285,24 @@ class VoiceService extends ChangeNotifier {
     }
     await tts.setPitch(v.pitch);
     await tts.setSpeechRate(v.rate);
-    await tts.speak(text);
+    final sw = Stopwatch()..start();
+    final r = await tts.speak(text);
+    _log('TTS de Android speak() devolvió $r en ${sw.elapsedMilliseconds} ms');
+    if (r == 0) throw Exception('el TTS de Android no pudo hablar (código $r). Revisa el motor de voz en Ajustes de Android › Accesibilidad › Texto a voz');
+  }
+
+  static String _size(String path) {
+    try {
+      final b = File(path).readAsBytesSync();
+      final kb = (b.length / 1024).toStringAsFixed(1);
+      try {
+        return '$kb KB, ${(WinNative.wavDuration(b).inMilliseconds / 1000).toStringAsFixed(2)} s';
+      } catch (e) {
+        return '$kb KB (${_msg(e)})';
+      }
+    } catch (_) {
+      return 'sin fichero';
+    }
   }
 
   Future<void> _speakNeural(String text, VoiceProfile v) async {
@@ -295,6 +339,7 @@ class VoiceService extends ChangeNotifier {
       final n = await _neural.synthesize(
           pack: native, text: text, speakerId: v.speakerId, speed: v.speed, outPath: WinNative.safePath(out));
       packs.setSpeakers(pack.id, n);
+      _log('voz neuronal ${pack.id} sintetizada: ${_size(out)}');
       await _playFile(out, gen);
     } finally {
       try {
@@ -304,11 +349,16 @@ class VoiceService extends ChangeNotifier {
   }
 
   Future<void> _playFile(String out, int gen) async {
-    if (gen != _generation) return; // se paró mientras se generaba
+    if (gen != _generation) {
+      _log('reproducción cancelada (se paró la voz mientras se generaba)');
+      return;
+    }
     if (!File(out).existsSync()) throw Exception('No se generó el audio');
+    final sw = Stopwatch()..start();
     if (Platform.isWindows) {
       // PlaySound de Windows: no depende de Media Foundation.
       await WinNative.play(out);
+      _log('reproducido con PlaySound en ${sw.elapsedMilliseconds} ms');
       return;
     }
     final done = Completer<void>();
@@ -317,23 +367,145 @@ class VoiceService extends ChangeNotifier {
       if (!done.isCompleted) done.complete();
     });
     try {
+      await _player.setVolume(1.0);
       await _player.play(DeviceFileSource(out));
-      await done.future.timeout(const Duration(minutes: 3), onTimeout: () {});
+      _log('audioplayers reproduciendo (estado ${_player.state.name})');
+      await done.future.timeout(const Duration(minutes: 3), onTimeout: () {
+        _log('audioplayers no avisó del final en 3 min');
+      });
+      _log('reproducido con audioplayers en ${sw.elapsedMilliseconds} ms');
     } finally {
       await sub.cancel();
-      await _player.release();
+      try {
+        await _player.release().timeout(const Duration(seconds: 2));
+      } catch (_) {}
     }
+  }
+
+  /// WAV con un pitido de [ms] milisegundos (para probar la salida de audio).
+  static Uint8List toneWav({int ms = 700, int rate = 22050, double freq = 440}) {
+    final n = rate * ms ~/ 1000;
+    final data = ByteData(44 + n * 2);
+    void str(int o, String s) {
+      for (var i = 0; i < s.length; i++) {
+        data.setUint8(o + i, s.codeUnitAt(i));
+      }
+    }
+
+    str(0, 'RIFF');
+    data.setUint32(4, 36 + n * 2, Endian.little);
+    str(8, 'WAVE');
+    str(12, 'fmt ');
+    data.setUint32(16, 16, Endian.little);
+    data.setUint16(20, 1, Endian.little);
+    data.setUint16(22, 1, Endian.little);
+    data.setUint32(24, rate, Endian.little);
+    data.setUint32(28, rate * 2, Endian.little);
+    data.setUint16(32, 2, Endian.little);
+    data.setUint16(34, 16, Endian.little);
+    str(36, 'data');
+    data.setUint32(40, n * 2, Endian.little);
+    for (var i = 0; i < n; i++) {
+      final fade = math.min(1.0, math.min(i, n - i) / (rate * 0.02));
+      final v = math.sin(2 * math.pi * freq * i / rate) * 0.5 * fade;
+      data.setInt16(44 + i * 2, (v * 32767).round(), Endian.little);
+    }
+    return data.buffer.asUint8List();
+  }
+
+  /// Prueba paso a paso la salida de audio, la voz del sistema y cada voz
+  /// neuronal instalada. Devuelve un informe que el usuario puede copiar.
+  Future<String> diagnose({void Function(String step)? onStep}) async {
+    final out = StringBuffer();
+    void line(String s) {
+      out.writeln(s);
+      _log('[diag] $s');
+    }
+
+    Future<void> step(String name, Future<void> Function() body) async {
+      onStep?.call(name);
+      final sw = Stopwatch()..start();
+      try {
+        await body();
+        line('✔ $name (${sw.elapsedMilliseconds} ms)');
+      } catch (e) {
+        line('✘ $name (${sw.elapsedMilliseconds} ms): ${_msg(e)}');
+      }
+    }
+
+    await stop();
+    _setError(null);
+    line('Diagnóstico de voces · ${DateTime.now().toIso8601String().substring(0, 19)}');
+    line('Sistema: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}');
+    line('Voces activadas: ${settings.voiceEnabled} · motor por defecto: ${settings.defaultVoiceEngine} · narrar: ${settings.narrateNarration}');
+    line('Narrador: motor=${settings.narratorVoice.engine} pack=${settings.narratorVoice.neuralPack} voz="${settings.narratorVoice.systemVoice}"');
+    line('Carpeta temporal: $tempDir');
+    await step('Escribir en la carpeta temporal', () async {
+      Directory(tempDir).createSync(recursive: true);
+      final f = File(p.join(tempDir, 'prueba.txt'))..writeAsStringSync('ok');
+      f.deleteSync();
+    });
+    if (_win != null && systemVoices.isEmpty) await init();
+    line('Voces del sistema (${systemVoices.length}): ${systemVoices.take(8).map((v) => '${v['name']} [${v['locale']}]').join(', ')}');
+    if (_win?.lastError != null) line('Motor de Windows: ${_win!.lastError}');
+    for (final pk in packs.installed) {
+      final missing = pk.files.entries.where((e) => e.value.split(',').any((f) => !File(f).existsSync() && !Directory(f).existsSync())).map((e) => e.key);
+      line('Paquete ${pk.id} (${pk.kind}): ficheros ${pk.files.keys.join('/')}${missing.isEmpty ? '' : ' · FALTAN: ${missing.join(', ')}'}');
+    }
+    if (packs.installed.isEmpty) line('No hay voces neuronales instaladas.');
+
+    final gen = ++_generation;
+    await step('Pitido por la salida de audio (debería oírse)', () async {
+      final f = File(p.join(tempDir, 'pitido_${DateTime.now().microsecondsSinceEpoch}.wav'))..writeAsBytesSync(toneWav());
+      try {
+        await _playFile(f.path, gen);
+      } finally {
+        try {
+          f.deleteSync();
+        } catch (_) {}
+      }
+    });
+    final sys = VoiceProfile(
+      engine: 'system',
+      systemVoice: systemVoices.isEmpty ? '' : systemVoices.first['name'] ?? '',
+      systemLocale: systemVoices.isEmpty ? 'es-ES' : systemVoices.first['locale'] ?? 'es-ES',
+    );
+    await step('Voz del sistema', () async {
+      _generation = gen;
+      await _speakSystem('Prueba de la voz del sistema.', sys);
+    });
+    for (final pk in packs.installed) {
+      await step('Voz neuronal ${pk.id}', () async {
+        _generation = gen;
+        await _speakNeural('Prueba de la voz neuronal.', VoiceProfile(engine: 'neural', neuralPack: pk.id));
+      });
+    }
+    line('');
+    line('Registro reciente:');
+    for (final l in log.reversed.take(60).toList().reversed) {
+      out.writeln(l);
+    }
+    return out.toString();
   }
 
   Future<void> stop() async {
     _generation++;
-    try {
-      await _tts?.stop();
-    } catch (_) {}
-    if (Platform.isWindows) WinNative.stop();
-    try {
-      await _player.stop();
-    } catch (_) {}
+    // Con tiempo límite: si un plugin no responde, la voz no debe quedarse
+    // bloqueada para siempre (antes speakAll esperaba aquí sin avisar).
+    Future<void> guarded(String what, Future<dynamic>? Function() f) async {
+      try {
+        await f()?.timeout(const Duration(seconds: 2));
+      } on TimeoutException {
+        _log('$what no respondió al parar');
+      } catch (_) {}
+    }
+
+    if (Platform.isWindows) {
+      WinNative.stop();
+    } else {
+      await guarded('El TTS del sistema', () => _tts?.stop());
+      await guarded('El reproductor', () => _player.stop());
+    }
     if (_playing != null && !_playing!.isCompleted) _playing!.complete();
     currentSpeaker = null;
     _setSpeaking(false);
