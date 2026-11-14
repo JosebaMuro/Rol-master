@@ -11,6 +11,7 @@ import 'package:record/record.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
 import 'whisper.dart';
+import 'win_native.dart';
 
 export 'whisper.dart' show SpeechModelFiles;
 
@@ -35,8 +36,12 @@ const speechModelCatalog = <SpeechModelInfo>[
 /// Pulsar para empezar a hablar y otra vez para terminar: el texto queda en
 /// la caja de la partida para revisarlo antes de enviarlo.
 class SpeechInput extends ChangeNotifier {
-  SpeechInput(this.rootDir, {this.selectedModel = ''});
+  SpeechInput(this.rootDir, {this.selectedModel = '', this.bundledDirs = const []});
   final String rootDir;
+
+  /// Carpetas de sólo lectura con modelos que trae la app (en Windows,
+  /// `incluidos/reconocimiento` junto al ejecutable).
+  final List<String> bundledDirs;
 
   /// Id del modelo elegido ('' = el primero instalado).
   String selectedModel;
@@ -54,9 +59,28 @@ class SpeechInput extends ChangeNotifier {
 
   _Worker? _worker;
 
+  /// Carpeta del modelo [id]: la descargada si existe y si no, la incluida
+  /// con la app. null si no está.
+  String? dirFor(String id) {
+    for (final base in [rootDir, ...bundledDirs]) {
+      final d = p.join(base, id);
+      if (SpeechModelFiles.detect(d).complete) return d;
+    }
+    return null;
+  }
+
+  /// Si el modelo viene con la app (y no hay copia propia que borrar).
+  bool isBundled(String id) {
+    final d = dirFor(id);
+    return d != null && !p.isWithin(rootDir, d);
+  }
+
+  /// Vuelve a mirar qué modelos hay (tras copiar los incluidos).
+  void rescan() => notifyListeners();
+
   List<String> get installed => [
         for (final m in speechModelCatalog)
-          if (SpeechModelFiles.detect(p.join(rootDir, m.id)).complete) m.id,
+          if (dirFor(m.id) != null) m.id,
       ];
 
   String? get activeModel {
@@ -169,7 +193,13 @@ class SpeechInput extends ChangeNotifier {
       if (bytes.length < sampleRate) return ''; // menos de medio segundo
       final samples = pcm16ToFloat(bytes);
       final model = activeModel!;
-      final files = SpeechModelFiles.detect(p.join(rootDir, model));
+      final found = SpeechModelFiles.detect(dirFor(model)!);
+      // En Windows sherpa-onnx no abre rutas con tildes: se usan las cortas.
+      final files = SpeechModelFiles(
+        encoder: WinNative.safePath(found.encoder),
+        decoder: WinNative.safePath(found.decoder),
+        tokens: WinNative.safePath(found.tokens),
+      );
       _worker ??= _Worker();
       return (await _worker!.transcribe(files, samples)).trim();
     } finally {

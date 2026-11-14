@@ -50,6 +50,15 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: .cache/modelos
+          key: modelos-android-${{ hashFiles('tool/incluir_modelos.py') }}
+      - name: Incluir voces y Whisper
+        run: python tool/incluir_modelos.py --perfil android --destino android/app/src/main/assets/incluidos
       - name: Compilar APK
         run: flutter build apk --release --target-platform android-arm64
       - name: Renombrar
@@ -80,6 +89,15 @@ jobs:
       - run: flutter pub get
       - name: Compilar EXE
         run: flutter build windows --release
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: .cache/modelos
+          key: modelos-windows-${{ hashFiles('tool/incluir_modelos.py') }}
+      - name: Incluir voces y Whisper
+        run: python tool/incluir_modelos.py --perfil windows --destino build/windows/x64/runner/Release/incluidos
       - name: Empaquetar portable (zip)
         shell: pwsh
         run: |

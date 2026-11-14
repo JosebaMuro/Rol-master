@@ -8,6 +8,7 @@ import 'ai/director.dart';
 import 'ai/llama_service.dart';
 import 'ai/memory/graph.dart';
 import 'ai/memory/rag.dart';
+import 'core/bundled_models.dart';
 import 'core/db.dart';
 import 'core/portable.dart';
 import 'core/settings.dart';
@@ -35,6 +36,7 @@ class AppServices {
     required this.docs,
     required this.dataRoot,
     required this.speech,
+    required this.bundled,
   });
 
   final AppSettings settings;
@@ -50,6 +52,8 @@ class AppServices {
   final DocLibrary docs;
   /// Micrófono + reconocimiento de voz local.
   final SpeechInput speech;
+  /// Voces y reconocimiento que vienen con la app.
+  final BundledModels bundled;
   /// Carpeta única con todos los datos (portable).
   final DataRoot dataRoot;
   String get dataDir => dataRoot.root;
@@ -76,7 +80,10 @@ class AppServices {
     final llm = LlamaService(settings, root);
     final rag = RagMemory(db, llm);
     final graph = KnowledgeGraph(db);
-    final packs = VoicePackManager(root.voices);
+    // Modelos incluidos con la app: en escritorio se usan desde la carpeta
+    // del programa; en Android se copian del APK la primera vez (abajo).
+    final included = BundledModels.desktopDir();
+    final packs = VoicePackManager(root.voices, bundledDirs: [if (included != null) p.join(included, 'voces')]);
     await packs.refresh();
     final voices = VoiceService(settings: settings, packs: packs, tempDir: root.tmp);
     final music = MusicService(db, settings, root)..init();
@@ -97,13 +104,29 @@ class AppServices {
       logs: logs,
       docs: DocLibrary(db, rag, llm, root),
       dataRoot: root,
-      speech: SpeechInput(root.speech, selectedModel: settings.speechModel),
+      speech: SpeechInput(
+        root.speech,
+        selectedModel: settings.speechModel,
+        bundledDirs: [if (included != null) p.join(included, 'reconocimiento')],
+      ),
+      bundled: BundledModels(root),
     );
+    if (Platform.isAndroid) s._installBundled();
     // Carga en segundo plano para no retrasar el arranque.
     voices.init();
     if (settings.chatModel.isNotEmpty) llm.loadChatModel();
     if (settings.embedModel.isNotEmpty) llm.loadEmbedModel();
     return s;
+  }
+
+  Future<void> _installBundled() async {
+    final copied = await bundled.installFromAssets();
+    if (copied == null) return;
+    for (final id in copied.voices) {
+      voicePacks.register(id);
+    }
+    await voicePacks.refresh();
+    speech.rescan();
   }
 
   DirectorConfig get directorConfig => DirectorConfig(

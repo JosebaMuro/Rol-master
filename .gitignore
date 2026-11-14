@@ -49,3 +49,7 @@ app.*.map.json
 
 # Instalador generado
 installer/windows/Output/
+
+# Modelos incluidos: los descarga el workflow (tool/incluir_modelos.py)
+/android/app/src/main/assets/incluidos/
+/incluidos/
