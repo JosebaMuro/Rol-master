@@ -9,8 +9,11 @@ import '../../app_services.dart';
 import '../../core/models.dart';
 import '../../core/scenes.dart';
 import '../../core/settings.dart';
+import '../../images/image_library.dart';
+import '../gallery_screen.dart';
 import '../map_viewer.dart';
 import 'file_utils.dart';
+import 'image_widgets.dart';
 
 /// Clave en la biblia para fijar una escena a mano (se ignora la automática).
 const pinnedSceneKey = '_escenaFija';
@@ -87,11 +90,20 @@ class ScenePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     context.watch<AppSettings>(); // repinta al cambiar un fondo
+    final lib = context.watch<ImageLibrary>(); // …o al llegar una imagen generada
     final s = context.read<AppServices>();
     final scheme = Theme.of(context).colorScheme;
     final scene = currentScene(campaign);
     final pinned = Scenes.byId(campaign.bible[pinnedSceneKey] as String?) != null;
-    final bg = scene == null ? null : sceneBackgroundFile(s, scene.id);
+    // Qué se enseña: la imagen fijada a mano, la de este lugar de la
+    // historia o, si no hay, el fondo genérico del tipo de escena.
+    final shown = lib.pinned(campaign) ?? lib.sceneFor(campaign);
+    final shownFile = ImageLibrary.fileFor(shown);
+    final fixedImage = lib.pinned(campaign) != null;
+    final kindBg = scene == null ? null : sceneBackgroundFile(s, scene.id);
+    final bg = shownFile ?? kindBg;
+    final pending = campaign.location.isEmpty || shownFile != null ? null : lib.find(campaign.id!, ImageRecord.sceneKind, campaign.location);
+    final drawing = lib.busy && pending != null && lib.current.endsWith(' de ${pending.subject}');
     final mapFile = map == null ? null : File(map!.imagePath);
     final viewingMap = showMap && mapFile != null && mapFile.existsSync();
 
@@ -105,13 +117,21 @@ class ScenePanel extends StatelessWidget {
         ),
       );
     } else if (bg != null) {
-      content = Image.file(
-        bg,
-        key: ValueKey(bg.path),
-        fit: BoxFit.cover,
-        width: double.infinity,
-        height: double.infinity,
-        errorBuilder: (_, _, _) => _placeholder(context, scene),
+      // Los personajes (retrato, cuerpo entero) se ven enteros; las escenas llenan el panel.
+      final whole = shown != null && !shown.isScene;
+      content = GestureDetector(
+        onTap: shownFile == null ? null : () => openImageFullscreen(context, shownFile, title: shown!.subject),
+        child: Container(
+          color: const Color(0xFF1B1712),
+          child: Image.file(
+            bg,
+            key: ValueKey(bg.path),
+            fit: whole ? BoxFit.contain : BoxFit.cover,
+            width: double.infinity,
+            height: double.infinity,
+            errorBuilder: (_, _, _) => _placeholder(context, scene),
+          ),
+        ),
       );
     } else {
       content = _placeholder(context, scene);
@@ -138,7 +158,11 @@ class ScenePanel extends StatelessWidget {
           top: 8,
           right: 120,
           child: Text(
-            [if (scene != null) '${scene.icon} ${scene.name}${pinned ? ' 📌' : ''}', if (campaign.location.isNotEmpty) campaign.location].join(' · '),
+            [
+              if (fixedImage) '📌 ${shown!.subject}',
+              if (scene != null) '${scene.icon} ${scene.name}${pinned ? ' 📌' : ''}',
+              if (campaign.location.isNotEmpty) campaign.location,
+            ].join(' · '),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, shadows: [Shadow(blurRadius: 4)]),
@@ -161,9 +185,16 @@ class ScenePanel extends StatelessWidget {
               icon: const Icon(Icons.wallpaper),
               onSelected: (v) => _onMenu(context, s, scene, v),
               itemBuilder: (_) => [
+                const PopupMenuItem(value: 'gallery', child: Text('Galería de imágenes…')),
+                if (fixedImage) const PopupMenuItem(value: 'unpin', child: Text('Dejar de mostrar la imagen fijada')),
+                if (campaign.location.isNotEmpty) ...[
+                  PopupMenuItem(value: 'genplace', child: Text(shownFile == null || fixedImage ? 'Generar imagen de este lugar' : 'Generar otra imagen de este lugar')),
+                  const PopupMenuItem(value: 'pickplace', child: Text('Elegir imagen para este lugar…')),
+                ],
+                const PopupMenuDivider(),
                 if (scene != null) ...[
-                  PopupMenuItem(value: 'pick', child: Text('Elegir imagen para ${scene.name}')),
-                  if (bg != null) PopupMenuItem(value: 'remove', child: Text('Quitar imagen de ${scene.name}')),
+                  PopupMenuItem(value: 'pick', child: Text('Elegir fondo genérico de ${scene.name}')),
+                  if (kindBg != null) PopupMenuItem(value: 'remove', child: Text('Quitar fondo genérico de ${scene.name}')),
                   const PopupMenuDivider(),
                 ],
                 PopupMenuItem(
@@ -188,6 +219,15 @@ class ScenePanel extends StatelessWidget {
             ),
           ]),
         ),
+        if (drawing)
+          const Positioned(
+            right: 12,
+            top: 48,
+            child: Chip(
+              avatar: SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+              label: Text('Dibujando la escena…'),
+            ),
+          ),
         if (overlay != null) Positioned(left: 0, right: 0, bottom: 0, child: overlay!),
         if (!viewingMap && scene != null && bg == null)
           Positioned(
@@ -223,7 +263,18 @@ class ScenePanel extends StatelessWidget {
   }
 
   Future<void> _onMenu(BuildContext context, AppServices s, SceneKind? scene, String v) async {
-    if (v == 'pick' && scene != null) {
+    if (v == 'gallery') {
+      await openGallery(context, campaign.id!);
+      onCampaignChanged();
+    } else if (v == 'unpin') {
+      s.images.pin(campaign, null);
+      onCampaignChanged();
+    } else if (v == 'genplace') {
+      final rec = s.images.ensureScene(campaign.id!, campaign.location, scene: scene?.id ?? '');
+      await generateImage(context, campaign, rec, fresh: !rec.missing);
+    } else if (v == 'pickplace') {
+      await pickImageFor(context, campaign.id!, ImageRecord.sceneKind, campaign.location);
+    } else if (v == 'pick' && scene != null) {
       final messenger = ScaffoldMessenger.of(context);
       try {
         await pickSceneBackground(context, scene);

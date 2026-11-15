@@ -13,6 +13,7 @@ import '../core/settings.dart';
 import '../voice/speech_input.dart';
 import '../voice/voice_packs.dart';
 import '../voice/voice_service.dart';
+import 'widgets/image_settings.dart';
 import 'widgets/file_utils.dart';
 import 'widgets/scene_panel.dart';
 import 'widgets/voice_diagnostics.dart';
@@ -281,6 +282,9 @@ class SettingsScreen extends StatelessWidget {
             },
           ),
         ),
+
+        header('Imágenes de escenas y personajes'),
+        const ImageSettingsSection(),
 
         header('El mundo'),
         ListTile(

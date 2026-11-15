@@ -44,6 +44,10 @@ class MainActivity : FlutterActivity() {
                             }
                         }
                     }
+                    // Carpeta de las bibliotecas nativas: ahí va el generador de
+                    // imágenes (libsdcli.so), el único sitio desde el que Android
+                    // deja ejecutar un programa incluido en el APK.
+                    "nativeLibDir" -> result.success(applicationInfo.nativeLibraryDir)
                     else -> result.notImplemented()
                 }
             }

@@ -13,7 +13,9 @@ import '../core/settings.dart';
 import '../game/dice.dart';
 import '../voice/speech_input.dart';
 import '../voice/voice_service.dart';
+import 'gallery_screen.dart';
 import 'map_viewer.dart';
+import 'widgets/image_widgets.dart';
 import 'widgets/music_bar.dart';
 import 'widgets/rich_message.dart';
 import 'widgets/scene_panel.dart';
@@ -72,6 +74,8 @@ class _PlayScreenState extends State<PlayScreen> {
       if (mounted && !_generating) setState(_reload);
     });
     _reload();
+    // Apunta en la galería los lugares de la historia que aún no tienen escena.
+    if (s.images.scenes(campaign.id!).isEmpty) unawaited(s.images.planScenes(campaign, useAi: false));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final first = _messages.where((m) => m.role != MessageRole.player).lastOrNull;
       if (first != null && _messages.length <= 2) _speak(first);
@@ -166,6 +170,8 @@ class _PlayScreenState extends State<PlayScreen> {
 
   void _afterResponse(ChatMessage m, ParsedNarration parsed) {
     campaign = s.db.campaign(campaign.id!)!;
+    // Lugar nuevo: se apunta su escena y, si hay generador, se dibuja sola.
+    s.images.noteLocation(campaign, narration: m.content);
     _speakParsed(parsed);
     if (parsed.musicSuggestion != null) {
       final sit = s.music.situationByName(parsed.musicSuggestion!);
@@ -236,6 +242,15 @@ class _PlayScreenState extends State<PlayScreen> {
     await s.voices.stop();
     final summary = await director.endSession(campaign, session);
     await s.logs.writeSession(campaign, session);
+    // Con lo jugado, la IA busca las escenas nuevas que hagan falta y, si
+    // está activado, se dibujan en segundo plano para la próxima sesión.
+    final ended = s.db.campaign(campaign.id!)!;
+    unawaited(() async {
+      await s.images.planScenes(ended);
+      if (s.settings.imageAuto && s.images.canGenerate) {
+        await s.images.generateMissing(ended, kinds: {ImageRecord.sceneKind});
+      }
+    }());
     if (!mounted) return;
     await showDialog(
       context: context,
@@ -439,11 +454,16 @@ class _PlayScreenState extends State<PlayScreen> {
                   settings.thinking = !settings.thinking;
                 case 'panel':
                   settings.showScenePanel = !settings.showScenePanel;
+                case 'gallery':
+                  openGallery(context, campaign.id!).then((_) {
+                    if (mounted) setState(() => campaign = s.db.campaign(campaign.id!)!);
+                  });
               }
             },
             itemBuilder: (_) => [
               CheckedPopupMenuItem(value: 'thinking', checked: settings.thinking, child: const Text('Razonamiento del director')),
               CheckedPopupMenuItem(value: 'panel', checked: settings.showScenePanel, child: const Text('Panel de imagen')),
+              const PopupMenuItem(value: 'gallery', child: Text('Imágenes de escenas y personajes')),
             ],
           ),
           IconButton(tooltip: 'Terminar sesión', icon: const Icon(Icons.flag), onPressed: _ending ? null : _endSession),
@@ -547,7 +567,9 @@ class _PlayScreenState extends State<PlayScreen> {
       color: translucent ? scheme.secondaryContainer.withValues(alpha: 0.85) : scheme.secondaryContainer,
       child: ListTile(
         dense: true,
-        leading: const Icon(Icons.graphic_eq),
+        leading: voices.currentSpeaker == null
+            ? const Icon(Icons.graphic_eq)
+            : PortraitAvatar(campaignId: campaign.id!, name: voices.currentSpeaker!, radius: 18),
         title: Text(voices.currentSpeaker == null ? 'Narrando…' : '${voices.currentSpeaker} habla…'),
         trailing: IconButton(icon: const Icon(Icons.stop), onPressed: voices.stop),
       ),

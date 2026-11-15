@@ -13,6 +13,7 @@ import 'core/db.dart';
 import 'core/portable.dart';
 import 'core/settings.dart';
 import 'docs/doc_library.dart';
+import 'images/image_library.dart';
 import 'logs/log_service.dart';
 import 'maps/map_service.dart';
 import 'music/music_service.dart';
@@ -37,6 +38,7 @@ class AppServices {
     required this.dataRoot,
     required this.speech,
     required this.bundled,
+    required this.images,
   });
 
   final AppSettings settings;
@@ -54,6 +56,8 @@ class AppServices {
   final SpeechInput speech;
   /// Voces y reconocimiento que vienen con la app.
   final BundledModels bundled;
+  /// Retratos, cuerpos enteros y escenas, y el generador de imágenes.
+  final ImageLibrary images;
   /// Carpeta única con todos los datos (portable).
   final DataRoot dataRoot;
   String get dataDir => dataRoot.root;
@@ -74,6 +78,7 @@ class AppServices {
       fallback = p.join((await getApplicationSupportDirectory()).path, 'DirectorDeRol');
     }
     final root = DataRoot.locate(fallback: fallback, androidDir: androidDir);
+    await ImageLibrary.initAndroid();
     final settings = AppSettings.load(root.settingsFile);
 
     final db = AppDatabase.open(root.database, root: root);
@@ -110,6 +115,7 @@ class AppServices {
         bundledDirs: [if (included != null) p.join(included, 'reconocimiento')],
       ),
       bundled: BundledModels(root),
+      images: ImageLibrary(db, llm, settings, root),
     );
     if (Platform.isAndroid) s._installBundled();
     // Carga en segundo plano para no retrasar el arranque.

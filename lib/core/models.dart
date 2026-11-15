@@ -684,3 +684,75 @@ class WorldClock {
         stance: (r['stance'] as String?) ?? 'desconocen',
       );
 }
+
+// ======================================================================
+// Imágenes de apoyo: retratos, cuerpos enteros y escenas.
+// ======================================================================
+
+/// Imagen de apoyo de una campaña. Hay como mucho una por tipo y sujeto:
+/// el retrato y el cuerpo entero de cada personaje (PJ o PNJ, por nombre) y
+/// una ilustración por escena o lugar de la historia.
+///
+/// Un registro sin fichero ([path] vacío) es una imagen que **falta**: la
+/// escena o el personaje existen en la historia pero aún no tienen imagen.
+class ImageRecord {
+  ImageRecord({
+    this.id,
+    required this.campaignId,
+    required this.kind,
+    required this.subject,
+    this.description = '',
+    this.prompt = '',
+    this.path = '',
+    this.origin = '',
+    this.scene = '',
+    DateTime? createdAt,
+  }) : createdAt = createdAt ?? DateTime.now();
+
+  static const portrait = 'retrato';
+  static const fullBody = 'cuerpo';
+  static const sceneKind = 'escena';
+  static const kinds = [portrait, fullBody, sceneKind];
+  static const kindNames = {portrait: 'Retrato', fullBody: 'Cuerpo entero', sceneKind: 'Escena'};
+
+  int? id;
+  final int campaignId;
+
+  /// 'retrato', 'cuerpo' o 'escena'.
+  final String kind;
+
+  /// Nombre del personaje o de la escena/lugar.
+  String subject;
+
+  /// Qué se ve, en español (lo escribe la historia, la IA o el usuario).
+  String description;
+
+  /// Texto que se envió al generador la última vez (editable).
+  String prompt;
+
+  /// Ruta del fichero (absoluta al leer; relativa a la carpeta de datos en la BD).
+  String path;
+
+  /// 'manual' (la eligió el usuario), 'generada' o 'importada'.
+  String origin;
+
+  /// Tipo de escena (castillo, cueva…) para las escenas; '' en personajes.
+  String scene;
+  final DateTime createdAt;
+
+  bool get missing => path.isEmpty;
+  bool get isScene => kind == sceneKind;
+
+  factory ImageRecord.fromRow(Map<String, Object?> r, {required String path}) => ImageRecord(
+        id: r['id'] as int,
+        campaignId: r['campaign_id'] as int,
+        kind: r['kind'] as String,
+        subject: r['subject'] as String,
+        description: (r['description'] as String?) ?? '',
+        prompt: (r['prompt'] as String?) ?? '',
+        path: path,
+        origin: (r['origin'] as String?) ?? '',
+        scene: (r['scene'] as String?) ?? '',
+        createdAt: DateTime.tryParse('${r['created_at']}'),
+      );
+}

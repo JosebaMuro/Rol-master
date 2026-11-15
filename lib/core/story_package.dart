@@ -20,6 +20,7 @@ class PackageOptions {
     this.backgrounds = true,
     this.voiceModels = false,
     this.globalDocs = true,
+    this.images = true,
   });
 
   /// Sesiones jugadas, registros, fichas, memoria del director... Sin esto
@@ -40,6 +41,9 @@ class PackageOptions {
   /// La documentación general (no ligada a ninguna campaña) que el director
   /// también consulta en esta campaña.
   final bool globalDocs;
+
+  /// Retratos, cuerpos enteros y escenas de la campaña.
+  final bool images;
 }
 
 /// Qué se aplica al importar un paquete.
@@ -51,8 +55,10 @@ class ImportOptions {
     this.voiceModels = true,
     this.narrator = true,
     this.globalDocs = true,
+    this.images = true,
   });
 
+  final bool images;
   final bool music;
   final bool backgrounds;
 
@@ -72,6 +78,7 @@ class ImportReport {
   int tracks = 0;
   int tracksSkipped = 0;
   int backgrounds = 0;
+  int images = 0;
   int documents = 0;
   bool narratorApplied = false;
   final installedVoices = <String>[];
@@ -107,6 +114,7 @@ class PackageSummary {
   int get documents => (json['documents'] as List?)?.length ?? 0;
   int get tracks => (_music['tracks'] as List?)?.length ?? 0;
   int get backgrounds => ((json['backgrounds'] as Map?) ?? const {}).length;
+  int get images => (json['images'] as List?)?.where((e) => e is Map && e['file'] != null).length ?? 0;
   bool get hasNarrator => _voices['narrator'] is Map;
   List<Map<String, dynamic>> get voicePacks => StoryPackage._maps(_voices['packs']).toList();
   int get includedVoicePacks => voicePacks.where((v) => v['included'] == true).length;
@@ -123,6 +131,7 @@ class PackageSummary {
 ///                      documentación, sesiones y mensajes, relojes...
 /// mapas/…              imágenes de los mapas
 /// fondos/<escena>.*    fondos por tipo de escena
+/// imagenes/…           retratos, cuerpos enteros y escenas de la historia
 /// musica/…             pistas de la biblioteca por situación
 /// documentos/…         documentos originales de la documentación
 /// voces/<paquete>/…    (opcional) modelos de voz neuronal
@@ -135,7 +144,7 @@ class PackageSummary {
 /// Los paquetes de la versión 1 (sólo historia y mapas) se siguen importando.
 class StoryPackage {
   static const format = 'director-de-rol/historia';
-  static const version = 2;
+  static const version = 3;
   static const extension = 'rolpack';
   static const _memoryPointerKey = '_memoryUpTo';
   static const _manifest = 'historia.json';
@@ -236,7 +245,7 @@ class StoryPackage {
 
     final bible = Map<String, dynamic>.from(c.bible);
     if (!includeProgress) {
-      for (final k in [_memoryPointerKey, '_turnos', '_eventosMundo', '_escena']) {
+      for (final k in [_memoryPointerKey, '_turnos', '_eventosMundo', '_escena', '_imagenFija']) {
         bible.remove(k);
       }
     }
@@ -275,6 +284,26 @@ class StoryPackage {
             },
         ],
       });
+    }
+
+    // ---- Imágenes de apoyo: retratos, cuerpos enteros y escenas. Las
+    // escenas que faltan viajan también (sin fichero) para generarlas allí.
+    final images = <Map<String, dynamic>>[];
+    if (o.images) {
+      for (final i in db.images(campaignId)) {
+        final f = resolve(i.path);
+        if (!exists(f) && !i.isScene) continue;
+        images.add({
+          'id': i.id,
+          'kind': i.kind,
+          'subject': i.subject,
+          'description': i.description,
+          'prompt': i.prompt,
+          'origin': i.origin,
+          'scene': i.scene,
+          'file': exists(f) ? attach('imagenes', f) : null,
+        });
+      }
     }
 
     // ---- Música: situaciones y pistas.
@@ -453,6 +482,7 @@ class StoryPackage {
       'documents': docs,
       'music': ?music,
       'backgrounds': backgrounds,
+      'images': images,
       'voices': {
         if (narrator != null) 'narrator': narrator.toJson(),
         if (settings != null) 'defaultEngine': settings.defaultVoiceEngine,
@@ -806,6 +836,18 @@ class StoryPackage {
       json['_backgroundsPlan'] = plan;
     }
 
+    if (o.images) {
+      final dir = root.campaignImages(report.campaign.id!);
+      for (final i in _maps(json['images'])) {
+        final file = i['file'];
+        if (file is! String || !names.contains(file)) continue;
+        final dest = _unique(dir, p.basename(file), reserved: out.map((e) => e.$2));
+        if (!p.isWithin(dir, dest)) continue;
+        i['_dest'] = dest;
+        out.add((file, dest));
+      }
+    }
+
     final voices = ((json['voices'] as Map?) ?? const {}).cast<String, dynamic>();
     for (final v in _maps(voices['packs'])) {
       final id = (v['id'] ?? '').toString();
@@ -864,6 +906,45 @@ class StoryPackage {
         settings.setSceneBackground(e.key, root.toStored(e.value));
         report.backgrounds++;
       }
+    }
+
+    if (o.images) {
+      final cid = report.campaign.id!;
+      int? pinned;
+      final oldPin = (json['campaign'] as Map?)?['bible'] is Map ? ((json['campaign'] as Map)['bible'] as Map)['_imagenFija'] : null;
+      for (final i in _maps(json['images'])) {
+        final kind = (i['kind'] ?? '').toString();
+        final subject = (i['subject'] ?? '').toString().trim();
+        if (!ImageRecord.kinds.contains(kind) || subject.isEmpty) continue;
+        final dest = i['_dest'];
+        final hasFile = dest is String && File(dest).existsSync();
+        if (!hasFile && kind != ImageRecord.sceneKind) continue;
+        final rec = db.saveImage(ImageRecord(
+          campaignId: cid,
+          kind: kind,
+          subject: subject,
+          description: (i['description'] ?? '').toString(),
+          prompt: (i['prompt'] ?? '').toString(),
+          origin: hasFile ? (i['origin'] ?? 'importada').toString() : '',
+          scene: (i['scene'] ?? '').toString(),
+          path: hasFile ? dest : '',
+        ));
+        if (hasFile) report.images++;
+        if (oldPin != null && i['id'] == oldPin) pinned = rec.id;
+      }
+      // La imagen fijada en la mesa apuntaba a ids del otro equipo.
+      final c = db.campaign(cid)!;
+      if (c.bible.containsKey('_imagenFija') || pinned != null) {
+        if (pinned == null) {
+          c.bible.remove('_imagenFija');
+        } else {
+          c.bible['_imagenFija'] = pinned;
+        }
+        db.updateCampaign(c);
+      }
+    } else {
+      final c = db.campaign(report.campaign.id!)!;
+      if (c.bible.remove('_imagenFija') != null) db.updateCampaign(c);
     }
 
     for (final id in report.installedVoices.toList()) {
