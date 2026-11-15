@@ -43,14 +43,18 @@ class SettingsScreen extends StatelessWidget {
           leading: Icon(llm.isReady ? Icons.check_circle : Icons.info_outline, color: llm.isReady ? Colors.green : null),
           title: Text(llm.isReady ? 'Modelo cargado' : llm.message),
           subtitle: Text(
-            llm.isReady ? '${p.basename(llm.loadedModel)}\n${llm.backendName}' : LlamaService.platformHint(),
+            llm.isReady
+                ? '${p.basename(llm.loadedModel)}\n${llm.backendName}'
+                    '${llm.vision ? ' · ve imágenes' : ''}'
+                    ' · ${llm.nativeThinking ? 'razonamiento propio' : 'razonamiento guiado'}'
+                : LlamaService.platformHint(),
           ),
         ),
         for (final m in chatPresets)
           Card(
             child: ListTile(
               title: Text(m.label),
-              subtitle: Text('${m.description}\n${m.sizeGb} GB · RAM ≥ ${m.minRamGb} GB · ${m.target}${m.reasoning ? ' · razona' : ''}'),
+              subtitle: Text('${m.description}\n${m.sizeGb} GB · RAM ≥ ${m.minRamGb} GB · ${m.target}${m.reasoning ? ' · razona' : ' · razona guiado'}${m.vision ? ' · ve imágenes' : ''}'),
               isThreeLine: true,
               trailing: llm.loadedModel == m.uri && llm.isReady
                   ? const Icon(Icons.check, color: Colors.green)
@@ -88,21 +92,32 @@ class SettingsScreen extends StatelessWidget {
               label: const Text('Otro modelo (hf:// o URL)'),
               onPressed: () async {
                 final ctrl = TextEditingController(text: 'hf://');
+                final proj = TextEditingController();
                 final uri = await showDialog<String>(
                   context: context,
                   builder: (ctx) => AlertDialog(
                     title: const Text('Modelo GGUF'),
-                    content: TextField(
-                      controller: ctrl,
-                      decoration: const InputDecoration(helperText: 'hf://usuario/repositorio/fichero.gguf o https://…'),
-                    ),
+                    content: Column(mainAxisSize: MainAxisSize.min, children: [
+                      TextField(
+                        controller: ctrl,
+                        decoration:
+                            const InputDecoration(helperText: 'hf://usuario/repositorio/fichero.gguf o https://…'),
+                      ),
+                      TextField(
+                        controller: proj,
+                        decoration: const InputDecoration(
+                          labelText: 'Proyector de visión (opcional)',
+                          helperText: 'El mmproj del modelo, si ve imágenes',
+                        ),
+                      ),
+                    ]),
                     actions: [
                       TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
                       FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('Cargar')),
                     ],
                   ),
                 );
-                if (uri != null && uri.length > 6) llm.loadChatModel(uri);
+                if (uri != null && uri.length > 6) llm.loadChatModel(uri, proj.text.trim());
               },
             ),
           ]),
