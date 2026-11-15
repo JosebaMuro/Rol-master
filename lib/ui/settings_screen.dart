@@ -224,7 +224,7 @@ class SettingsScreen extends StatelessWidget {
         ),
         const Padding(
           padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: Text('Voces neuronales (sherpa-onnx, funcionan sin Internet). Las marcadas con ✓ vienen con la app.'),
+          child: Text('Voces neuronales (sherpa-onnx, funcionan sin Internet). Todas vienen con la app (✓): no hay que descargar nada.'),
         ),
         ListenableBuilder(
           listenable: s.bundled,
@@ -259,7 +259,7 @@ class SettingsScreen extends StatelessWidget {
         const Padding(
           padding: EdgeInsets.fromLTRB(16, 0, 16, 4),
           child: Text('Pulsa el micrófono en la partida, habla y vuelve a pulsar: el texto aparece en la caja para '
-              'revisarlo. El reconocimiento es local (Whisper con sherpa-onnx), sin Internet una vez descargado.'),
+              'revisarlo. El reconocimiento es local (Whisper con sherpa-onnx), sin Internet. Los tres modelos vienen con la app.'),
         ),
         for (final info in speechModelCatalog) _speechTile(speech, st, info),
         SwitchListTile(

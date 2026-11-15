@@ -26,26 +26,26 @@ import urllib.request
 
 BASE = 'https://github.com/k2-fsa/sherpa-onnx/releases/download'
 
-# Qué lleva cada plataforma. Android va más justo de tamaño (el APK y la
-# copia en el teléfono): una voz Piper con hombre y mujer, Kokoro int8
-# (53 voces, la mitad de tamaño) y Whisper base int8.
-PERFILES = {
-    'windows': {
-        'voces': [
-            'vits-piper-es_ES-davefx-medium',
-            'vits-piper-es_ES-sharvard-medium',
-            'kokoro-multi-lang-v1_0',
-        ],
-        'reconocimiento': ['sherpa-onnx-whisper-base'],
-    },
-    'android': {
-        'voces': [
-            'vits-piper-es_ES-sharvard-medium',
-            'kokoro-int8-multi-lang-v1_0',
-        ],
-        'reconocimiento': ['sherpa-onnx-whisper-base'],
-    },
+# Todo el catálogo de la app (lib/voice/voice_packs.dart y
+# lib/voice/speech_input.dart) va incluido en las dos plataformas: no hay que
+# descargar nada desde Ajustes. test/bundled_models_test.dart comprueba que
+# esta lista y los catálogos coinciden.
+TODO = {
+    'voces': [
+        'vits-piper-es_ES-davefx-medium',
+        'vits-piper-es_ES-sharvard-medium',
+        'vits-piper-es_MX-ald-medium',
+        'vits-piper-es_ES-carlfm-x_low',
+        'kokoro-int8-multi-lang-v1_0',
+        'kokoro-multi-lang-v1_0',
+    ],
+    'reconocimiento': [
+        'sherpa-onnx-whisper-tiny',
+        'sherpa-onnx-whisper-base',
+        'sherpa-onnx-whisper-small',
+    ],
 }
+PERFILES = {'windows': TODO, 'android': TODO}
 
 CARPETA_RELEASE = {'voces': 'tts-models', 'reconocimiento': 'asr-models'}
 

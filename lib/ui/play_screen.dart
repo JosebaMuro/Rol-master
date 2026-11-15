@@ -571,7 +571,7 @@ class _PlayScreenState extends State<PlayScreen> {
       );
     }
     return IconButton(
-      tooltip: speech.available ? 'Hablar (toca para empezar y otra vez para terminar)' : 'Hablar: descarga un modelo de voz en Ajustes',
+      tooltip: speech.available ? 'Hablar (toca para empezar y otra vez para terminar)' : 'Hablar: falta un modelo de reconocimiento de voz (Ajustes)',
       icon: Icon(speech.available ? Icons.mic : Icons.mic_none),
       onPressed: () => _toggleMic(speech),
     );

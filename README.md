@@ -20,7 +20,7 @@ La IA inventa campañas completas, narra, interpreta a los PNJ con **voces disti
 | Recuerdos fijados y asuntos pendientes | Chincheta en cualquier mensaje para que el director lo tenga **siempre** presente. Registro de promesas, deudas, amenazas, misiones y pistas que la IA abre y cierra sola (y tú puedes editar). Botón *Mundo* 🌐 en la partida. |
 | El mundo avanza solo | El villano y cada facción tienen un **reloj** (tramas en marcha) que tira dados cada pocos turnos y avanza aunque el grupo no haga nada; si se llena, ocurre su consecuencia y el director la muestra. Postura del grupo ante cada trama y **saltos de tiempo** ("tres semanas después"). |
 | PNJ vivos | Cada PNJ tiene un **objetivo**, una **actitud** hacia el grupo (de −3 enemigo a +3 leal) y recuerda **sólo lo que ha presenciado**. La IA los actualiza tras cada turno; se ajustan en *PNJ y voces*. |
-| Jugar hablando | Botón 🎤 en la partida: hablas, vuelves a pulsar y el texto aparece en la caja. Reconocimiento **local** con Whisper (sherpa-onnx), modelos tiny/base/small descargables en Ajustes. |
+| Jugar hablando | Botón 🎤 en la partida: hablas, vuelves a pulsar y el texto aparece en la caja. Reconocimiento **local** con Whisper (sherpa-onnx), los modelos tiny, base y small vienen con la app y se elige en Ajustes (por defecto, base). |
 | Mapas | Mazmorras, criptas simétricas, cuevas, **ruinas** (Wave Function Collapse) y **pueblos amurallados** (calles, plaza, casas, río con puentes, campos) en estilo pergamino, con salas numeradas y leyenda escrita por la IA. Se generan solos cuando el director entra en un lugar (`[[mapa: …]]`) o a mano. Visor a pantalla completa con zoom. |
 | Registro de partidas | Pestaña *Registro* por jugador y por tema, lector de sesiones, exportación a Markdown y preguntas a la IA sobre partidas pasadas ("¿qué nos dijo el herrero en la sesión 2?"). Además se escribe en `datos/registros/<Jugador>/<Tema>/<Campaña>/sesion-NN.md`. |
 | Pantalla de partida | Arriba, un panel de imagen; abajo, el texto, a media pantalla cada uno. Asignas una imagen de fondo a cada tipo de lugar (mazmorra, cripta, cueva, castillo, ciudad, taberna, templo, bosque…) y cambia sola cuando el director cambia de lugar (`[[escena: …]]`). También se puede fijar una escena a mano o ver ahí el mapa generado. El panel se oculta con un botón. |
@@ -33,7 +33,9 @@ La IA inventa campañas completas, narra, interpreta a los PNJ con **voces disti
   - Windows x64: CPU (AVX2/AVX-512) + **Vulkan** (GPU NVIDIA, AMD e Intel). CUDA opcional (ver abajo).
   - Android arm64: CPU ARM optimizada (NEON, dotprod, i8mm) + **Vulkan** (experimental, se elige en Ajustes).
 - **sherpa-onnx** (ONNX Runtime) para las voces neuronales, en CPU de móvil y PC.
-- TTS del sistema como alternativa sin descargas.
+- TTS del sistema como alternativa.
+
+Todas las voces del catálogo (Piper Davefx, Sharvard, Ald y Carlfm; Kokoro completa y ligera) y los tres Whisper (tiny, base y small) van **dentro del APK y del instalador**: unos 1,5 GB de modelos. En Android se copian a la carpeta de datos en el primer arranque, así que la app ocupa unos 2,7 GB en el teléfono. La lista está en `tool/incluir_modelos.py`.
 
 ## Modelos recomendados
 
@@ -74,7 +76,7 @@ Las rutas se guardan relativas a `datos`, así que mover la carpeta no rompe nad
 
 1. Instala el APK (Android) o ejecuta el instalador `DirectorDeRol-windows-x64-setup.exe` (Windows).
 2. **Ajustes** → elige un modelo → *Usar* (espera a la descarga).
-3. Opcional: activa la memoria semántica, descarga voces neuronales, añade tu música en **Música**.
+3. Opcional: activa la memoria semántica, elige voces neuronales (Piper y Kokoro vienen todas con la app), añade tu música en **Música**.
 4. **Campañas** → *Nueva campaña* → tema, tono, jugadores y personajes → *Que la IA invente la campaña*.
 5. *Empezar partida*. Escribe lo que hacen los personajes; usa 🎲 para tiradas, 🎵 para la música, 🗺️ para mapas y 🏁 para terminar la sesión.
 

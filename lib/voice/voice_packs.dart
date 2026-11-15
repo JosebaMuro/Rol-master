@@ -137,6 +137,16 @@ class VoicePackManager extends ChangeNotifier {
         out.add(pack);
       }
     }
+    // Orden del catálogo (lo que no es del catálogo, al final): la lista de
+    // Ajustes y la voz que se usa si no se ha elegido ninguna no dependen
+    // del orden en que el sistema de ficheros devuelva las carpetas.
+    int rank(InstalledVoicePack e) {
+      final i = voicePackCatalog.indexWhere((c) => c.id == e.id);
+      return i < 0 ? voicePackCatalog.length : i;
+    }
+
+    final order = {for (final (i, e) in out.indexed) e: i};
+    out.sort((a, b) => rank(a) != rank(b) ? rank(a).compareTo(rank(b)) : order[a]!.compareTo(order[b]!));
     installed = out;
     notifyListeners();
   }
