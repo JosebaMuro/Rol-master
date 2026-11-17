@@ -29,6 +29,14 @@ android {
         versionName = flutter.versionName
     }
 
+    // El generador de imágenes (sd-cli) va como libsdcli.so y tiene que
+    // quedar extraído en disco para poder ejecutarlo.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.

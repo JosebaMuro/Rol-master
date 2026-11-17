@@ -168,7 +168,7 @@ class _ExportDialog extends StatefulWidget {
 }
 
 class _ExportDialogState extends State<_ExportDialog> {
-  var progress = true, music = true, backgrounds = true, voiceModels = false, globalDocs = true;
+  var progress = true, music = true, backgrounds = true, voiceModels = false, globalDocs = true, images = true;
 
   int _size(String k) => widget.sizes[k] ?? 0;
 
@@ -187,6 +187,7 @@ class _ExportDialogState extends State<_ExportDialog> {
         _size('documentos') +
         (music ? _size('musica') : 0) +
         (backgrounds ? _size('fondos') : 0) +
+        (images ? _size('imagenes') : 0) +
         (voiceModels ? _size('voces') : 0);
     return AlertDialog(
       title: const Text('Exportar campaña'),
@@ -203,6 +204,9 @@ class _ExportDialogState extends State<_ExportDialog> {
               music, (v) => music = v, enabled: _size('musica') > 0),
           _switch('Fondos de escena', _size('fondos') == 0 ? 'No hay fondos puestos' : _mb(_size('fondos')), backgrounds,
               (v) => backgrounds = v, enabled: _size('fondos') > 0),
+          _switch('Imágenes de escenas y personajes',
+              _size('imagenes') == 0 ? 'Sólo la lista de escenas (aún no hay imágenes)' : 'Retratos, cuerpos enteros y escenas · ${_mb(_size('imagenes'))}',
+              images, (v) => images = v),
           _switch('Documentación general', 'Los documentos comunes que la IA también consulta', globalDocs, (v) => globalDocs = v),
           _switch(
             'Modelos de voz neuronal',
@@ -229,6 +233,7 @@ class _ExportDialogState extends State<_ExportDialog> {
               backgrounds: backgrounds && _size('fondos') > 0,
               voiceModels: voiceModels && _size('voces') > 0,
               globalDocs: globalDocs,
+              images: images,
             ),
           ),
           child: const Text('Exportar'),
@@ -247,7 +252,7 @@ class _ImportDialog extends StatefulWidget {
 }
 
 class _ImportDialogState extends State<_ImportDialog> {
-  var music = true, backgrounds = true, replaceBackgrounds = false, voiceModels = true, narrator = true, globalDocs = true;
+  var music = true, backgrounds = true, replaceBackgrounds = false, voiceModels = true, narrator = true, globalDocs = true, images = true;
 
   @override
   Widget build(BuildContext context) {
@@ -272,6 +277,7 @@ class _ImportDialogState extends State<_ImportDialog> {
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           for (final l in lines) Text(l),
           const SizedBox(height: 8),
+          if (s.images > 0) sw('Traer sus imágenes de escenas y personajes (${s.images})', images, (v) => images = v),
           if (s.tracks > 0) sw('Añadir su música (${s.tracks} pistas)', music, (v) => music = v),
           if (s.backgrounds > 0) ...[
             sw('Usar sus fondos de escena (${s.backgrounds})', backgrounds, (v) => backgrounds = v),
@@ -298,6 +304,7 @@ class _ImportDialogState extends State<_ImportDialog> {
               replaceBackgrounds: replaceBackgrounds,
               voiceModels: voiceModels,
               narrator: narrator,
+              images: images,
               globalDocs: globalDocs,
             ),
           ),
@@ -321,6 +328,7 @@ class _ReportDialog extends StatelessWidget {
       if (r.tracks > 0 || r.tracksSkipped > 0)
         'Música: ${r.tracks} pistas añadidas${r.tracksSkipped > 0 ? ' (${r.tracksSkipped} ya estaban)' : ''}.',
       if (r.backgrounds > 0) 'Fondos de escena: ${r.backgrounds}.',
+      if (r.images > 0) 'Imágenes de escenas y personajes: ${r.images}.',
       if (r.documents > 0) 'Documentación: ${r.documents} documentos.',
       if (r.installedVoices.isNotEmpty) 'Voces instaladas: ${r.installedVoices.join(', ')}.',
       if (r.narratorApplied) 'Narrador: se usa el de la campaña.',

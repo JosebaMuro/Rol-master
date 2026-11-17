@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../app_services.dart';
 import '../core/models.dart';
 import 'campaign_package_ui.dart';
+import 'gallery_screen.dart';
 import 'graph_screen.dart';
 import 'logs_screen.dart';
 import 'npc_voices_screen.dart';
@@ -25,7 +26,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
     final c = s.db.campaign(widget.campaignId);
     if (c == null) return const Scaffold(body: Center(child: Text('Campaña no encontrada')));
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Scaffold(
         appBar: AppBar(
           title: Text(c.title),
@@ -37,7 +38,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                     context: context,
                     builder: (ctx) => AlertDialog(
                       title: const Text('¿Borrar campaña?'),
-                      content: const Text('Se borrarán sesiones, PNJ, memoria y mapas de esta campaña.'),
+                      content: const Text('Se borrarán sesiones, PNJ, memoria, mapas e imágenes de esta campaña.'),
                       actions: [
                         TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
                         FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Borrar')),
@@ -46,6 +47,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                   );
                   if (ok == true && context.mounted) {
                     s.db.deleteCampaign(c.id!);
+                    s.images.deleteCampaignFiles(c.id!);
                     Navigator.pop(context);
                   }
                 } else if (v == 'story') {
@@ -67,6 +69,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
           bottom: const TabBar(isScrollable: true, tabs: [
             Tab(text: 'Historia'),
             Tab(text: 'PNJ y voces'),
+            Tab(text: 'Imágenes'),
             Tab(text: 'Grafo'),
             Tab(text: 'Sesiones'),
           ]),
@@ -82,6 +85,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
         body: TabBarView(children: [
           _BibleTab(campaign: c),
           NpcVoicesScreen(campaignId: c.id!),
+          GalleryScreen(campaignId: c.id!),
           GraphScreen(campaignId: c.id!),
           SessionsList(campaign: c),
         ]),

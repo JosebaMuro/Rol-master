@@ -24,7 +24,7 @@ class AppDatabase {
   String _store(String path) => root?.toStored(path) ?? path;
   String _resolve(String path) => root?.resolve(path) ?? path;
 
-  static const int schemaVersion = 3;
+  static const int schemaVersion = 4;
 
   void _migrate() {
     db.execute('PRAGMA foreign_keys = ON');
@@ -204,6 +204,25 @@ ALTER TABLE npcs ADD COLUMN goal TEXT NOT NULL DEFAULT '';
 ALTER TABLE npcs ADD COLUMN attitude INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE npcs ADD COLUMN knows TEXT NOT NULL DEFAULT '[]';
 ALTER TABLE npcs ADD COLUMN last_seen INTEGER NOT NULL DEFAULT 0;
+''');
+    }
+    if (v < 4) {
+      // Imágenes de apoyo: retrato y cuerpo entero de cada PJ/PNJ y escenas.
+      db.execute('''
+CREATE TABLE IF NOT EXISTS images (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  norm TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  prompt TEXT NOT NULL DEFAULT '',
+  path TEXT NOT NULL DEFAULT '',
+  origin TEXT NOT NULL DEFAULT '',
+  scene TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  UNIQUE (campaign_id, kind, norm)
+);
 ''');
     }
     if (v < schemaVersion) db.execute('PRAGMA user_version = $schemaVersion');
@@ -815,6 +834,47 @@ ALTER TABLE npcs ADD COLUMN last_seen INTEGER NOT NULL DEFAULT 0;
       );
 
   void deleteTrack(int id) => db.execute('DELETE FROM tracks WHERE id = ?', [id]);
+
+  // ---------------------------------------------------------------- imágenes
+  ImageRecord _image(Map<String, Object?> r) => ImageRecord.fromRow(r, path: _resolve((r['path'] as String?) ?? ''));
+
+  /// Imágenes de una campaña; [kind] filtra por tipo (retrato, cuerpo, escena).
+  List<ImageRecord> images(int campaignId, {String? kind}) => db
+      .select(
+        'SELECT * FROM images WHERE campaign_id = ?${kind == null ? '' : ' AND kind = ?'} ORDER BY kind, id',
+        [campaignId, ?kind],
+      )
+      .map(_image)
+      .toList();
+
+  ImageRecord? image(int campaignId, String kind, String subject) {
+    final r = db.select('SELECT * FROM images WHERE campaign_id = ? AND kind = ? AND norm = ?',
+        [campaignId, kind, normalize(subject)]);
+    return r.isEmpty ? null : _image(r.first);
+  }
+
+  /// Crea o actualiza la imagen de ese tipo y sujeto.
+  ImageRecord saveImage(ImageRecord i) {
+    final norm = normalize(i.subject);
+    if (i.id != null) {
+      db.execute(
+        'UPDATE images SET subject = ?, norm = ?, description = ?, prompt = ?, path = ?, origin = ?, scene = ? WHERE id = ?',
+        [i.subject, norm, i.description, i.prompt, _store(i.path), i.origin, i.scene, i.id],
+      );
+    } else {
+      db.execute(
+        'INSERT INTO images (campaign_id, kind, subject, norm, description, prompt, path, origin, scene, created_at) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(campaign_id, kind, norm) DO UPDATE SET '
+        'subject = excluded.subject, description = excluded.description, prompt = excluded.prompt, '
+        'path = excluded.path, origin = excluded.origin, scene = excluded.scene',
+        [i.campaignId, i.kind, i.subject, norm, i.description, i.prompt, _store(i.path), i.origin, i.scene, i.createdAt.toIso8601String()],
+      );
+      i.id = db.select('SELECT id FROM images WHERE campaign_id = ? AND kind = ? AND norm = ?', [i.campaignId, i.kind, norm]).first['id'] as int;
+    }
+    return i;
+  }
+
+  void deleteImage(int id) => db.execute('DELETE FROM images WHERE id = ?', [id]);
 
   // -------------------------------------------------------------------- maps
   MapRecord addMap(MapRecord m) {

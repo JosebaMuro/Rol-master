@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../app_services.dart';
 import '../core/models.dart';
+import 'widgets/image_widgets.dart';
 import 'widgets/voice_editor.dart';
 
 /// Lista de PNJ de la campaña con la voz asignada a cada uno.
@@ -29,6 +30,7 @@ class _NpcVoicesScreenState extends State<NpcVoicesScreen> {
   Widget build(BuildContext context) {
     final s = context.read<AppServices>();
     final npcs = s.db.npcs(widget.campaignId);
+    final campaign = s.db.campaign(widget.campaignId);
     return ListView(
       padding: const EdgeInsets.only(bottom: 96, top: 8),
       children: [
@@ -54,7 +56,7 @@ class _NpcVoicesScreenState extends State<NpcVoicesScreen> {
         for (final n in npcs)
           Card(
             child: ExpansionTile(
-              leading: CircleAvatar(child: Text(n.name.characters.first)),
+              leading: PortraitAvatar(campaignId: widget.campaignId, name: n.name),
               title: Text(n.name),
               subtitle: Text(
                 [
@@ -67,6 +69,15 @@ class _NpcVoicesScreenState extends State<NpcVoicesScreen> {
               ),
               childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
               children: [
+                // Retrato y cuerpo entero.
+                if (campaign != null)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: CharacterImages(campaign: campaign, name: n.name, description: n.description, size: 120),
+                    ),
+                  ),
                 // Actitud hacia el grupo.
                 Row(children: [
                   const Text('Actitud'),
@@ -147,6 +158,10 @@ class _NpcVoicesScreenState extends State<NpcVoicesScreen> {
                     icon: const Icon(Icons.delete_outline),
                     label: const Text('Quitar PNJ'),
                     onPressed: () {
+                      for (final kind in [ImageRecord.portrait, ImageRecord.fullBody]) {
+                        final img = s.images.find(widget.campaignId, kind, n.name);
+                        if (img != null) s.images.remove(img);
+                      }
                       s.db.deleteNpc(n.id!);
                       setState(() {});
                     },
