@@ -183,13 +183,15 @@ class LlamaService extends ChangeNotifier implements TextGenerator {
       }
 
       var visionError = '';
+      final String modelUri = uri;
+      final String proj = projector;
       Future<void> attempt(GpuChoice? choice) async {
         visionError = '';
         vision = false;
-        if (projector.isNotEmpty) {
+        if (proj.isNotEmpty) {
           try {
             await engine.setModel(
-              LlamaModel(_source(uri), projector: _source(projector)),
+              LlamaModel(_source(modelUri), projector: _source(proj)),
               params: _params(embedding: false, choice: choice),
               download: _download,
               onProgress: onProgress,
@@ -201,7 +203,7 @@ class LlamaService extends ChangeNotifier implements TextGenerator {
             debugPrint('No se pudo cargar con visión: $e\n$st');
             visionError = '$e';
             await engine.setModel(
-              LlamaModel(_source(uri)),
+              LlamaModel(_source(modelUri)),
               params: _params(embedding: false, choice: choice),
               download: _download,
               onProgress: onProgress,
@@ -209,7 +211,7 @@ class LlamaService extends ChangeNotifier implements TextGenerator {
           }
         } else {
           await engine.setModel(
-            LlamaModel(_source(uri)),
+            LlamaModel(_source(modelUri)),
             params: _params(embedding: false, choice: choice),
             download: _download,
             onProgress: onProgress,
