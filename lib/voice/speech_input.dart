@@ -43,7 +43,7 @@ class SpeechInput extends ChangeNotifier {
   /// `incluidos/reconocimiento` junto al ejecutable).
   final List<String> bundledDirs;
 
-  /// Id del modelo elegido ('' = el primero instalado).
+  /// Id del modelo elegido ('' = [defaultModel] o, si no está, el primero instalado).
   String selectedModel;
 
   final Map<String, double?> downloading = {};
@@ -86,8 +86,13 @@ class SpeechInput extends ChangeNotifier {
   String? get activeModel {
     final list = installed;
     if (list.isEmpty) return null;
-    return list.contains(selectedModel) ? selectedModel : list.first;
+    if (list.contains(selectedModel)) return selectedModel;
+    // Sin elección del usuario: base, el equilibrio recomendado (vienen
+    // todos con la app, y el primero del catálogo es el menos preciso).
+    return list.contains(defaultModel) ? defaultModel : list.first;
   }
+
+  static const defaultModel = 'sherpa-onnx-whisper-base';
 
   bool get available => activeModel != null;
 
@@ -153,7 +158,7 @@ class SpeechInput extends ChangeNotifier {
   /// Empieza a grabar. Devuelve un mensaje de error si no se puede.
   Future<String?> start() async {
     if (recording || transcribing) return null;
-    if (!available) return 'Descarga un modelo de reconocimiento de voz en Ajustes';
+    if (!available) return 'No hay ningún modelo de reconocimiento de voz: instala uno en Ajustes';
     final rec = _recorder ??= AudioRecorder();
     try {
       if (!await rec.hasPermission()) return 'Sin permiso para usar el micrófono';

@@ -14,6 +14,10 @@ OutputBaseFilename=DirectorDeRol-windows-x64-setup
 OutputDir=Output
 Compression=lzma2/ultra64
 SolidCompression=yes
+#ifdef Repartir
+DiskSpanning=yes
+DiskSliceSize=max
+#endif
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern

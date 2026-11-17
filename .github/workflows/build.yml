@@ -64,7 +64,7 @@ jobs:
       - name: Renombrar
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/DirectorDeRol-android-arm64.apk
+          mv build/app/outputs/flutter-apk/app-release.apk dist/DirectorDeRol-android-arm64.apk
       - uses: actions/upload-artifact@v4
         with:
           name: DirectorDeRol-android
@@ -111,13 +111,19 @@ jobs:
             choco install innosetup -y --no-progress
           }
           $version = (Select-String -Path pubspec.yaml -Pattern '^version: (.+)\+').Matches[0].Groups[1].Value
-          & $iscc "/DAppVersion=$version" installer/windows/director.iss
-          Copy-Item installer/windows/Output/*.exe dist/
+          # Con CUDA el instalador pasa de los 2 GB que admite un único .exe:
+          # se reparte en setup.exe + ficheros .bin (van juntos).
+          $extra = @()
+          if ('${{ github.event.inputs.cuda }}' -eq 'true') { $extra += '/DRepartir' }
+          & $iscc "/DAppVersion=$version" @extra installer/windows/director.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item installer/windows/Output/* dist/
       - uses: actions/upload-artifact@v4
         with:
           name: DirectorDeRol-windows
           path: |
             dist/*.exe
+            dist/*.bin
             dist/*.zip
 
   release:

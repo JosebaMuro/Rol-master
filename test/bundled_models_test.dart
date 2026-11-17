@@ -110,4 +110,44 @@ void main() {
     final root = DataRoot(p.join(tmp.path, 'datos'));
     expect(await BundledModels(root, source: _FolderSource(p.join(tmp.path, 'vacio'))).installFromAssets(), isNull);
   });
+
+  test('todo el catálogo de voces y de Whisper va incluido en las dos plataformas', () {
+    final tool = File(p.join('tool', 'incluir_modelos.py')).readAsStringSync();
+    final todo = tool.substring(tool.indexOf('TODO = {'), tool.indexOf('PERFILES = '));
+    List<String> ids(String key, String next) {
+      final from = todo.indexOf("'$key'");
+      final to = next.isEmpty ? todo.length : todo.indexOf("'$next'");
+      return [for (final m in RegExp(r"'([\w.-]+)',").allMatches(todo.substring(from, to))) m.group(1)!];
+    }
+
+    expect(ids('voces', 'reconocimiento'), [for (final v in voicePackCatalog) v.id]);
+    expect(ids('reconocimiento', ''), [for (final m in speechModelCatalog) m.id]);
+    expect(tool, contains("PERFILES = {'windows': TODO, 'android': TODO}"));
+  });
+
+  test('con todos los Whisper incluidos se usa base si no se ha elegido otro', () {
+    final rec = p.join(tmp.path, 'reconocimiento');
+    for (final m in ['tiny', 'base', 'small']) {
+      _write(p.join(rec, 'sherpa-onnx-whisper-$m', '$m-encoder.int8.onnx'), 'e');
+      _write(p.join(rec, 'sherpa-onnx-whisper-$m', '$m-decoder.int8.onnx'), 'd');
+      _write(p.join(rec, 'sherpa-onnx-whisper-$m', '$m-tokens.txt'), 't');
+    }
+    final speech = SpeechInput(p.join(tmp.path, 'datos'), bundledDirs: [rec]);
+    expect(speech.installed, hasLength(3));
+    expect(speech.activeModel, 'sherpa-onnx-whisper-base');
+    speech.select('sherpa-onnx-whisper-small');
+    expect(speech.activeModel, 'sherpa-onnx-whisper-small');
+  });
+
+  test('las voces incluidas salen en el orden del catálogo', () async {
+    final voces = p.join(tmp.path, 'voces');
+    for (final v in voicePackCatalog.reversed) {
+      _write(p.join(voces, v.id, 'model.onnx'), 'onnx');
+      _write(p.join(voces, v.id, 'tokens.txt'), 'a 1');
+    }
+    final packs = VoicePackManager(p.join(tmp.path, 'datos'), bundledDirs: [voces]);
+    await packs.refresh();
+    expect([for (final e in packs.installed) e.id], [for (final v in voicePackCatalog) v.id]);
+    expect(packs.installed.every((e) => e.bundled), isTrue);
+  });
 }
