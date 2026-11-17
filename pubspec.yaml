@@ -53,8 +53,10 @@ dependencies:
 # Motores de inferencia nativos que se empaquetan (los descarga el build hook
 # de llamadart en la primera compilación):
 #   - Windows x64: llama.cpp con CPU (AVX2/AVX512) + Vulkan (GPU NVIDIA/AMD/Intel)
+#     + CUDA (NVIDIA, más rápido; ≈700 MB). La app elige CUDA si hay NVIDIA.
 #   - Android arm64: llama.cpp con CPU ARM (NEON/i8mm/dotprod) + Vulkan
-# Para añadir CUDA en Windows: añade "cuda" a la lista de windows-x64 (≈700 MB).
+# Para quitar CUDA en Windows: bórralo de la lista de windows-x64 (o lanza el
+# workflow a mano con «Incluir CUDA» desmarcado).
 hooks:
   user_defines:
     llamadart:
@@ -62,7 +64,7 @@ hooks:
       llamadart_native_backends:
         platforms:
           windows-x64:
-            backends: [cpu, vulkan] # windows
+            backends: [cpu, vulkan, cuda] # windows
           android-arm64:
             backends: [cpu, vulkan]
           linux-x64:

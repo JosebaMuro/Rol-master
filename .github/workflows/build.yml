@@ -8,9 +8,9 @@ on:
   workflow_dispatch:
     inputs:
       cuda:
-        description: 'Incluir también CUDA en Windows (≈700 MB más)'
+        description: 'Incluir CUDA en Windows para GPU NVIDIA (≈700 MB más)'
         type: boolean
-        default: false
+        default: true
       release_tag:
         description: 'Crear una release con esta etiqueta (p. ej. v1.0.0). Vacío = sólo compilar.'
         type: string
@@ -112,14 +112,26 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-      - name: Añadir CUDA (opcional)
-        if: ${{ github.event.inputs.cuda == 'true' }}
+      - name: Quitar CUDA (si se pidió sin CUDA)
+        if: ${{ github.event.inputs.cuda == 'false' }}
         shell: pwsh
         run: |
-          (Get-Content pubspec.yaml) -replace 'backends: \[cpu, vulkan\] # windows', 'backends: [cpu, vulkan, cuda]' | Set-Content pubspec.yaml
+          (Get-Content pubspec.yaml) -replace 'backends: \[cpu, vulkan, cuda\] # windows', 'backends: [cpu, vulkan]' | Set-Content pubspec.yaml
       - run: flutter pub get
       - name: Compilar EXE
         run: flutter build windows --release
+      - name: Comprobar los motores de GPU incluidos
+        shell: pwsh
+        run: |
+          $rel = "build/windows/x64/runner/Release"
+          Get-ChildItem $rel -Recurse -Include *ggml*.dll, *llama*.dll, *cuda*.dll, *cublas*.dll |
+            ForEach-Object { "{0,10:N0} KB  {1}" -f ($_.Length / 1KB), $_.FullName.Substring((Resolve-Path $rel).Path.Length) }
+          $vk = Get-ChildItem $rel -Recurse -Filter '*ggml-vulkan*.dll'
+          if (-not $vk) { Write-Output '::warning::No se ve el motor Vulkan (ggml-vulkan*.dll) en el EXE' }
+          if ('${{ github.event.inputs.cuda }}' -ne 'false') {
+            $cu = Get-ChildItem $rel -Recurse -Filter '*ggml-cuda*.dll'
+            if (-not $cu) { Write-Output '::warning::No se ve el motor CUDA (ggml-cuda*.dll) en el EXE' }
+          }
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -156,7 +168,7 @@ jobs:
           # Con CUDA el instalador pasa de los 2 GB que admite un único .exe:
           # se reparte en setup.exe + ficheros .bin (van juntos).
           $extra = @()
-          if ('${{ github.event.inputs.cuda }}' -eq 'true') { $extra += '/DRepartir' }
+          if ('${{ github.event.inputs.cuda }}' -ne 'false') { $extra += '/DRepartir' }
           & $iscc "/DAppVersion=$version" @extra installer/windows/director.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item installer/windows/Output/* dist/

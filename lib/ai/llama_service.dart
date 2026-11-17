@@ -13,8 +13,8 @@ enum EngineStatus { empty, downloading, loading, ready, error }
 
 /// Motor de inferencia local basado en llama.cpp (paquete llamadart).
 ///
-/// * Windows / Linux: backend Vulkan (GPU NVIDIA, AMD o Intel) o CPU; CUDA si
-///   se compila con ese módulo.
+/// * Windows / Linux: CUDA (NVIDIA) si está incluido, Vulkan (NVIDIA, AMD o
+///   Intel) o CPU. En «Auto» se elige la mejor GPU dedicada que haya.
 /// * Android: CPU optimizada ARM (NEON/i8mm) y Vulkan opcional.
 ///
 /// Mantiene dos motores: uno de chat (narrador) y otro opcional de
@@ -37,6 +37,16 @@ class LlamaService extends ChangeNotifier implements TextGenerator {
   double? progress;
   String message = 'Sin modelo cargado';
   String backendName = '';
+
+  /// Dónde se ejecuta el modelo cargado, en palabras («GPU NVIDIA … (CUDA) ·
+  /// 37 capas» o «CPU: …»). Vacío si no hay modelo.
+  String gpuSummary = '';
+
+  /// El modelo cargado tiene capas en la GPU.
+  bool onGpu = false;
+
+  /// GPUs que ve llama.cpp en este equipo (se rellena al cargar un modelo).
+  List<GpuDeviceInfo> gpus = const [];
   String loadedModel = '';
   String loadedEmbedModel = '';
 
@@ -73,25 +83,75 @@ class LlamaService extends ChangeNotifier implements TextGenerator {
     return ModelSource.parse(uri);
   }
 
-  ModelParams _params({required bool embedding}) {
+  ModelParams _params({required bool embedding, GpuChoice? choice}) {
     final device = switch (settings.device) {
       'cpu' => ComputeDevice.cpu,
       'gpu' => ComputeDevice.gpu,
       _ => ComputeDevice.auto,
     };
-    final backend = switch (settings.backend) {
+    var backend = switch (settings.backend) {
       'vulkan' => GpuBackend.vulkan,
       'cuda' => GpuBackend.cuda,
       'opencl' => GpuBackend.opencl,
       'cpu' => GpuBackend.cpu,
       _ => GpuBackend.auto,
     };
+    List<int>? devices;
+    if (device != ComputeDevice.cpu && choice != null && (backend == GpuBackend.auto || backend == choice.backend)) {
+      backend = choice.backend;
+      devices = choice.devices;
+    }
     return ModelParams(
       contextSize: embedding ? 2048 : settings.contextSize,
       device: device,
       preferredBackend: device == ComputeDevice.cpu ? GpuBackend.auto : backend,
       gpuLayers: device == ComputeDevice.cpu ? 0 : settings.gpuLayers,
+      gpuDevices: devices,
     );
+  }
+
+  /// Busca las GPUs del equipo (CUDA y Vulkan) y elige dónde cargar.
+  /// En Android se deja la elección de siempre (CPU salvo que se pida GPU).
+  Future<GpuChoice?> _chooseGpu(LlamaEngine engine) async {
+    if (!(Platform.isWindows || Platform.isLinux)) return null;
+    if (settings.device == 'cpu') return null;
+    final found = <GpuDeviceInfo>[];
+    for (final b in const [GpuBackend.cuda, GpuBackend.vulkan]) {
+      try {
+        found.addAll(await engine.listGpuDevices(probeBackends: [b]));
+      } catch (e) {
+        debugPrint('No se pudieron listar las GPU ${b.name}: $e');
+      }
+    }
+    // Sin duplicados (cada sonda devuelve también lo ya registrado).
+    final seen = <String>{};
+    gpus = [
+      for (final d in found)
+        if (seen.add('${d.backend.name}:${d.mainGpu}')) d,
+    ];
+    debugPrint('GPUs vistas: ${gpus.join(', ')}');
+    return GpuChoice.pick(gpus, settings.backend);
+  }
+
+  /// Resume en palabras dónde ha quedado el modelo tras cargarlo.
+  Future<void> _describePlacement(LlamaEngine engine, GpuChoice? choice) async {
+    int? layers;
+    try {
+      layers = await engine.getResolvedGpuLayers();
+    } catch (_) {}
+    onGpu = (layers ?? 0) > 0;
+    if (onGpu) {
+      final where = choice?.label ?? backendName;
+      final n = layers! >= 99 ? 'todas las capas' : '$layers capas';
+      gpuSummary = 'GPU: $where · $n';
+    } else if (settings.device == 'cpu' || settings.gpuLayers == 0) {
+      gpuSummary = 'CPU (elegido en Ajustes)';
+    } else if (gpus.isEmpty && (Platform.isWindows || Platform.isLinux)) {
+      gpuSummary = 'CPU: no se ha encontrado ninguna GPU compatible. '
+          'Actualiza el controlador de la tarjeta gráfica.';
+    } else {
+      gpuSummary = 'CPU: la GPU no se ha podido usar con este backend';
+    }
   }
 
   /// Carga (y descarga si hace falta) el modelo de chat. Si el modelo tiene
@@ -123,46 +183,67 @@ class LlamaService extends ChangeNotifier implements TextGenerator {
       }
 
       var visionError = '';
-      vision = false;
-      if (projector.isNotEmpty) {
-        try {
+      final String modelUri = uri;
+      final String proj = projector;
+      Future<void> attempt(GpuChoice? choice) async {
+        visionError = '';
+        vision = false;
+        if (proj.isNotEmpty) {
+          try {
+            await engine.setModel(
+              LlamaModel(_source(modelUri), projector: _source(proj)),
+              params: _params(embedding: false, choice: choice),
+              download: _download,
+              onProgress: onProgress,
+            );
+            vision = await engine.supportsVision;
+            if (!vision) visionError = 'el proyector no da visión en este equipo';
+          } catch (e, st) {
+            // Sin proyector el modelo sigue sirviendo para narrar.
+            debugPrint('No se pudo cargar con visión: $e\n$st');
+            visionError = '$e';
+            await engine.setModel(
+              LlamaModel(_source(modelUri)),
+              params: _params(embedding: false, choice: choice),
+              download: _download,
+              onProgress: onProgress,
+            );
+          }
+        } else {
           await engine.setModel(
-            LlamaModel(_source(uri), projector: _source(projector)),
-            params: _params(embedding: false),
-            download: _download,
-            onProgress: onProgress,
-          );
-          vision = await engine.supportsVision;
-          if (!vision) visionError = 'el proyector no da visión en este equipo';
-        } catch (e, st) {
-          // Sin proyector el modelo sigue sirviendo para narrar.
-          debugPrint('No se pudo cargar con visión: $e\n$st');
-          visionError = '$e';
-          await engine.setModel(
-            LlamaModel(_source(uri)),
-            params: _params(embedding: false),
+            LlamaModel(_source(modelUri)),
+            params: _params(embedding: false, choice: choice),
             download: _download,
             onProgress: onProgress,
           );
         }
-      } else {
-        await engine.setModel(
-          LlamaModel(_source(uri)),
-          params: _params(embedding: false),
-          download: _download,
-          onProgress: onProgress,
-        );
+      }
+
+      var choice = await _chooseGpu(engine);
+      try {
+        await attempt(choice);
+      } catch (e) {
+        // Si CUDA falla (controlador antiguo, falta de memoria…), se prueba
+        // con Vulkan en la misma tarjeta antes de rendirse.
+        final vulkan = choice?.backend == GpuBackend.cuda && settings.backend == 'auto'
+            ? GpuChoice.pick(gpus.where((g) => g.backend != GpuBackend.cuda).toList(), 'vulkan')
+            : null;
+        if (vulkan == null) rethrow;
+        debugPrint('CUDA no ha podido cargar el modelo ($e); se prueba con Vulkan');
+        choice = vulkan;
+        await attempt(choice);
       }
       status = EngineStatus.loading;
       notifyListeners();
       backendName = await engine.getBackendName();
+      await _describePlacement(engine, choice);
       loadedModel = uri;
       nativeThinking = hasNativeThinking(uri);
       settings.chatModel = dataRoot.toStored(uri);
       settings.chatProjector = projector.isEmpty ? '' : dataRoot.toStored(projector);
       settings.addRecentModel(dataRoot.toStored(uri));
       status = EngineStatus.ready;
-      message = 'Listo · $backendName'
+      message = 'Listo · ${gpuSummary.isEmpty ? backendName : gpuSummary}'
           '${vision ? ' · ve imágenes' : ''}'
           '${visionError.isEmpty ? '' : ' · sin visión ($visionError)'}';
     } catch (e, st) {
@@ -185,7 +266,8 @@ class LlamaService extends ChangeNotifier implements TextGenerator {
     try {
       final engine = _embed ?? LlamaEngine(LlamaBackend());
       _embed = engine;
-      await engine.setModel(LlamaModel(_source(uri)), params: _params(embedding: true), download: _download);
+      final choice = await _chooseGpu(engine);
+      await engine.setModel(LlamaModel(_source(uri)), params: _params(embedding: true, choice: choice), download: _download);
       loadedEmbedModel = uri;
       settings.embedModel = dataRoot.toStored(uri);
       embedStatus = EngineStatus.ready;
@@ -365,8 +447,50 @@ class LlamaService extends ChangeNotifier implements TextGenerator {
 
   static String platformHint() {
     if (Platform.isAndroid) return 'Android · CPU ARM (Vulkan opcional)';
-    if (Platform.isWindows) return 'Windows · Vulkan / CPU';
-    if (Platform.isLinux) return 'Linux · Vulkan / CPU';
+    if (Platform.isWindows) return 'Windows · CUDA / Vulkan / CPU';
+    if (Platform.isLinux) return 'Linux · CUDA / Vulkan / CPU';
     return Platform.operatingSystem;
+  }
+}
+
+/// Dónde cargar el modelo: backend, GPUs concretas y su nombre para mostrar.
+class GpuChoice {
+  const GpuChoice(this.backend, this.devices, this.label);
+
+  final GpuBackend backend;
+
+  /// Índices (`mainGpu`) de las GPU a usar; null = las que elija llama.cpp.
+  final List<int>? devices;
+  final String label;
+
+  static bool _isGpu(GpuDeviceInfo d) =>
+      d.type == GpuDeviceType.discreteGpu || d.type == GpuDeviceType.integratedGpu;
+
+  /// Elige la GPU: CUDA si hay una tarjeta NVIDIA con CUDA, si no Vulkan; y
+  /// dentro del backend la dedicada con más memoria (no la integrada, que
+  /// repartiría el modelo y lo haría más lento). [wanted] es el backend
+  /// elegido en Ajustes ('auto', 'cuda', 'vulkan'…).
+  static GpuChoice? pick(List<GpuDeviceInfo> gpus, String wanted) {
+    final order = switch (wanted) {
+      'cuda' => const [GpuBackend.cuda],
+      'vulkan' => const [GpuBackend.vulkan],
+      'auto' => const [GpuBackend.cuda, GpuBackend.vulkan],
+      _ => const <GpuBackend>[],
+    };
+    for (final b in order) {
+      final list = gpus.where((d) => d.backend == b && _isGpu(d)).toList();
+      if (list.isEmpty) continue;
+      final dedicated = list.where((d) => d.isDiscreteGpu).toList();
+      final pool = dedicated.isEmpty ? list : dedicated;
+      pool.sort((a, c) => c.memoryTotalBytes.compareTo(a.memoryTotalBytes));
+      final best = pool.first;
+      final name = best.description.isNotEmpty ? best.description : best.name;
+      final gb = best.memoryTotalBytes > 0 ? ' · ${(best.memoryTotalBytes / (1 << 30)).toStringAsFixed(1)} GB' : '';
+      final label = '$name (${b == GpuBackend.cuda ? 'CUDA' : 'Vulkan'}$gb)';
+      // Sólo se fija el dispositivo cuando hay varios donde elegir.
+      final devices = list.length > 1 ? [best.mainGpu] : null;
+      return GpuChoice(b, devices, label);
+    }
+    return null;
   }
 }
