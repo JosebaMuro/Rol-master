@@ -45,7 +45,7 @@ class SettingsScreen extends StatelessWidget {
           title: Text(llm.isReady ? 'Modelo cargado' : llm.message),
           subtitle: Text(
             llm.isReady
-                ? '${p.basename(llm.loadedModel)}\n${llm.backendName}'
+                ? '${p.basename(llm.loadedModel)}\n${llm.gpuSummary.isEmpty ? llm.backendName : llm.gpuSummary}'
                     '${llm.vision ? ' · ve imágenes' : ''}'
                     ' · ${llm.nativeThinking ? 'razonamiento propio' : 'razonamiento guiado'}'
                 : LlamaService.platformHint(),
@@ -125,7 +125,7 @@ class SettingsScreen extends StatelessWidget {
         ),
         ListTile(
           title: const Text('Dispositivo de cálculo'),
-          subtitle: const Text('Auto elige GPU en PC (Vulkan) y CPU en móvil'),
+          subtitle: const Text('Auto usa la GPU dedicada en PC y la CPU en móvil'),
           trailing: DropdownButton<String>(
             value: st.device,
             items: const [
@@ -138,7 +138,8 @@ class SettingsScreen extends StatelessWidget {
         ),
         ListTile(
           title: const Text('Backend de GPU'),
-          subtitle: const Text('Vulkan: NVIDIA/AMD/Intel y móviles compatibles'),
+          subtitle: Text('Auto: CUDA si hay NVIDIA, si no Vulkan (NVIDIA/AMD/Intel)'
+              '${llm.gpus.isEmpty ? '' : '\nGPUs: ${llm.gpus.map((g) => '${g.description.isNotEmpty ? g.description : g.name} (${g.backend.name})').toSet().join(', ')}'}'),
           trailing: DropdownButton<String>(
             value: st.backend,
             items: const [
