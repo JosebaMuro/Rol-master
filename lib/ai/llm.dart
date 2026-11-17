@@ -4,12 +4,22 @@ import 'dart:convert';
 enum LlmRole { system, user, assistant }
 
 class LlmMessage {
-  const LlmMessage(this.role, this.text);
-  const LlmMessage.system(this.text) : role = LlmRole.system;
-  const LlmMessage.user(this.text) : role = LlmRole.user;
-  const LlmMessage.assistant(this.text) : role = LlmRole.assistant;
+  const LlmMessage(this.role, this.text, {this.images = const []});
+  const LlmMessage.system(this.text)
+      : role = LlmRole.system,
+        images = const [];
+  const LlmMessage.user(this.text, {this.images = const []}) : role = LlmRole.user;
+  const LlmMessage.assistant(this.text)
+      : role = LlmRole.assistant,
+        images = const [];
   final LlmRole role;
   final String text;
+
+  /// Rutas locales de imágenes que acompañan al mensaje. Sólo las usan los
+  /// modelos con visión (ver [TextGenerator.canSee]); el resto las ignora.
+  final List<String> images;
+
+  LlmMessage withImages(List<String> images) => LlmMessage(role, text, images: images);
 }
 
 /// Fragmento de una respuesta en streaming: texto visible y razonamiento.
@@ -26,6 +36,9 @@ abstract class TextGenerator {
 
   /// Indica si hay un modelo de embeddings cargado para el RAG semántico.
   bool get canEmbed;
+
+  /// Indica si el modelo cargado ve imágenes (tiene proyector de visión).
+  bool get canSee;
 
   Stream<LlmChunk> chat(
     List<LlmMessage> messages, {
@@ -47,6 +60,76 @@ abstract class TextGenerator {
   Future<List<double>?> embed(String text, {bool query = false});
 
   void cancel();
+}
+
+/// Instrucción para que un modelo sin modo de razonamiento propio (Gemma 3,
+/// por ejemplo) piense antes de narrar. El bloque se separa de la narración
+/// con [ThinkSplitter], igual que el razonamiento nativo de Qwen3.
+String guidedThinkingInstruction(int budgetTokens) {
+  final words = (budgetTokens * 0.6).round().clamp(60, 1200);
+  return 'RAZONAMIENTO PREVIO: antes de responder, piensa paso a paso dentro de un único bloque '
+      '<think>…</think> (máximo $words palabras, en notas breves): qué intentan los personajes, qué reglas, '
+      'tiradas y consecuencias aplican, qué saben y quieren los PNJ presentes, y cómo encaja con la trama y con '
+      'lo ya ocurrido. Cierra siempre el bloque con </think> y escribe después tu respuesta normal. '
+      'Nada de lo que pongas dentro del bloque lo verán los jugadores.';
+}
+
+/// Añade la instrucción de razonamiento guiado al mensaje de sistema.
+List<LlmMessage> withGuidedThinking(List<LlmMessage> messages, int budgetTokens) {
+  final rule = guidedThinkingInstruction(budgetTokens);
+  if (messages.isNotEmpty && messages.first.role == LlmRole.system) {
+    return [LlmMessage.system('${messages.first.text}\n\n$rule'), ...messages.skip(1)];
+  }
+  return [LlmMessage.system(rule), ...messages];
+}
+
+/// Separa en streaming el razonamiento escrito entre `<think>` y `</think>`
+/// del texto visible, aunque las etiquetas lleguen partidas entre fragmentos.
+class ThinkSplitter {
+  static const _open = '<think>';
+  static const _close = '</think>';
+
+  String _pending = '';
+  bool _inside = false;
+
+  /// Hay un bloque de razonamiento abierto y sin cerrar.
+  bool get inside => _inside;
+
+  LlmChunk add(String piece) {
+    _pending += piece;
+    final text = StringBuffer();
+    final thinking = StringBuffer();
+    while (true) {
+      final tag = _inside ? _close : _open;
+      final out = _inside ? thinking : text;
+      final i = _pending.indexOf(tag);
+      if (i >= 0) {
+        out.write(_pending.substring(0, i));
+        _pending = _pending.substring(i + tag.length);
+        _inside = !_inside;
+        continue;
+      }
+      // Retiene el final si puede ser el principio de una etiqueta.
+      var keep = 0;
+      for (var n = tag.length - 1; n > 0; n--) {
+        if (_pending.endsWith(tag.substring(0, n))) {
+          keep = n;
+          break;
+        }
+      }
+      out.write(_pending.substring(0, _pending.length - keep));
+      _pending = _pending.substring(_pending.length - keep);
+      break;
+    }
+    return LlmChunk(text: text.toString(), thinking: thinking.toString());
+  }
+
+  /// Lo que quedaba retenido al terminar la generación.
+  LlmChunk close() {
+    final rest = _pending;
+    _pending = '';
+    return _inside ? LlmChunk(thinking: rest) : LlmChunk(text: rest);
+  }
 }
 
 /// Extrae el primer objeto JSON de un texto libre (por si el modelo añade

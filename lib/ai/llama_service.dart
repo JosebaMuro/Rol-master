@@ -7,6 +7,7 @@ import 'package:llamadart/llamadart.dart';
 import '../core/portable.dart';
 import '../core/settings.dart';
 import 'llm.dart';
+import 'model_catalog.dart';
 
 enum EngineStatus { empty, downloading, loading, ready, error }
 
@@ -38,6 +39,12 @@ class LlamaService extends ChangeNotifier implements TextGenerator {
   String backendName = '';
   String loadedModel = '';
   String loadedEmbedModel = '';
+
+  /// El modelo cargado ve imágenes (se cargó con su proyector de visión).
+  bool vision = false;
+
+  /// El modelo cargado tiene modo de razonamiento propio; si no, razona guiado.
+  bool nativeThinking = true;
   bool _busy = false;
 
   /// Cola para que sólo haya una generación a la vez en el motor.
@@ -56,6 +63,9 @@ class LlamaService extends ChangeNotifier implements TextGenerator {
 
   @override
   bool get canEmbed => embedStatus == EngineStatus.ready && _embed != null;
+
+  @override
+  bool get canSee => isReady && vision;
 
   ModelSource _source(String uri) {
     final looksLocal = !uri.contains('://') || uri.startsWith('file://');
@@ -84,8 +94,9 @@ class LlamaService extends ChangeNotifier implements TextGenerator {
     );
   }
 
-  /// Carga (y descarga si hace falta) el modelo de chat.
-  Future<void> loadChatModel([String? uri]) async {
+  /// Carga (y descarga si hace falta) el modelo de chat. Si el modelo tiene
+  /// proyector de visión (el del catálogo o [projector]) se carga con él.
+  Future<void> loadChatModel([String? uri, String? projector]) async {
     uri ??= settings.chatModel;
     if (uri.isEmpty) {
       message = 'Elige un modelo en Ajustes';
@@ -93,6 +104,8 @@ class LlamaService extends ChangeNotifier implements TextGenerator {
       return;
     }
     if (_busy) return;
+    projector ??= chatPresetFor(uri)?.projector ??
+        (dataRoot.toStored(uri) == settings.chatModel ? settings.chatProjector : '');
     _busy = true;
     status = EngineStatus.downloading;
     progress = null;
@@ -101,29 +114,61 @@ class LlamaService extends ChangeNotifier implements TextGenerator {
     try {
       final engine = _chat ?? LlamaEngine(LlamaBackend());
       _chat = engine;
-      await engine.setModel(
-        LlamaModel(_source(uri)),
-        params: _params(embedding: false),
-        download: _download,
-        onProgress: (p) {
-          progress = p.fraction;
-          final mb = (p.receivedBytes / 1e6).toStringAsFixed(0);
-          final total = p.totalBytes == null ? '' : ' / ${(p.totalBytes! / 1e6).toStringAsFixed(0)} MB';
-          message = 'Descargando modelo: $mb MB$total';
-          notifyListeners();
-        },
-      );
+      void onProgress(ModelDownloadProgress p) {
+        progress = p.fraction;
+        final mb = (p.receivedBytes / 1e6).toStringAsFixed(0);
+        final total = p.totalBytes == null ? '' : ' / ${(p.totalBytes! / 1e6).toStringAsFixed(0)} MB';
+        message = 'Descargando modelo: $mb MB$total';
+        notifyListeners();
+      }
+
+      var visionError = '';
+      vision = false;
+      if (projector.isNotEmpty) {
+        try {
+          await engine.setModel(
+            LlamaModel(_source(uri), projector: _source(projector)),
+            params: _params(embedding: false),
+            download: _download,
+            onProgress: onProgress,
+          );
+          vision = await engine.supportsVision;
+          if (!vision) visionError = 'el proyector no da visión en este equipo';
+        } catch (e, st) {
+          // Sin proyector el modelo sigue sirviendo para narrar.
+          debugPrint('No se pudo cargar con visión: $e\n$st');
+          visionError = '$e';
+          await engine.setModel(
+            LlamaModel(_source(uri)),
+            params: _params(embedding: false),
+            download: _download,
+            onProgress: onProgress,
+          );
+        }
+      } else {
+        await engine.setModel(
+          LlamaModel(_source(uri)),
+          params: _params(embedding: false),
+          download: _download,
+          onProgress: onProgress,
+        );
+      }
       status = EngineStatus.loading;
       notifyListeners();
       backendName = await engine.getBackendName();
       loadedModel = uri;
+      nativeThinking = hasNativeThinking(uri);
       settings.chatModel = dataRoot.toStored(uri);
+      settings.chatProjector = projector.isEmpty ? '' : dataRoot.toStored(projector);
       settings.addRecentModel(dataRoot.toStored(uri));
       status = EngineStatus.ready;
-      message = 'Listo · $backendName';
+      message = 'Listo · $backendName'
+          '${vision ? ' · ve imágenes' : ''}'
+          '${visionError.isEmpty ? '' : ' · sin visión ($visionError)'}';
     } catch (e, st) {
       debugPrint('Error cargando modelo: $e\n$st');
       status = EngineStatus.error;
+      vision = false;
       message = 'Error al cargar el modelo: $e';
     } finally {
       _busy = false;
@@ -160,16 +205,24 @@ class LlamaService extends ChangeNotifier implements TextGenerator {
     await e?.dispose();
   }
 
+  LlamaChatRole _role(LlmRole r) => switch (r) {
+        LlmRole.system => LlamaChatRole.system,
+        LlmRole.user => LlamaChatRole.user,
+        LlmRole.assistant => LlamaChatRole.assistant,
+      };
+
   List<LlamaChatMessage> _convert(List<LlmMessage> messages) => [
         for (final m in messages)
-          LlamaChatMessage.fromText(
-            role: switch (m.role) {
-              LlmRole.system => LlamaChatRole.system,
-              LlmRole.user => LlamaChatRole.user,
-              LlmRole.assistant => LlamaChatRole.assistant,
-            },
-            text: m.text,
-          ),
+          if (vision && m.images.isNotEmpty)
+            LlamaChatMessage.withContent(
+              role: _role(m.role),
+              content: [
+                for (final path in m.images) LlamaImageContent(path: path),
+                LlamaTextContent(m.text),
+              ],
+            )
+          else
+            LlamaChatMessage.fromText(role: _role(m.role), text: m.text),
       ];
 
   @override
@@ -182,19 +235,50 @@ class LlamaService extends ChangeNotifier implements TextGenerator {
   }) async* {
     final engine = _chat;
     if (engine == null || !isReady) throw StateError('No hay modelo cargado');
-    final params = GenerationParams(
-      maxTokens: maxTokens + (thinking ? (thinkingBudget ?? 1024) : 0),
-      temp: temperature,
-      topP: 0.92,
-      penalty: 1.08,
-      thinkingBudget: thinking && thinkingBudget != null ? ThinkingBudget(maxTokens: thinkingBudget) : null,
-    );
+    final budget = thinkingBudget ?? 1024;
+    // Los modelos sin modo de razonamiento propio (Gemma 3…) piensan «guiados»:
+    // se les pide un bloque <think>…</think> que aquí se separa de la narración.
+    final guided = thinking && !nativeThinking;
+    GenerationParams params(bool withThinking) => GenerationParams(
+          maxTokens: maxTokens + (withThinking ? budget : 0),
+          temp: temperature,
+          topP: 0.92,
+          penalty: 1.08,
+          thinkingBudget:
+              withThinking && !guided && thinkingBudget != null ? ThinkingBudget(maxTokens: thinkingBudget) : null,
+        );
     final release = await _acquire();
     try {
-      await for (final c in engine.create(_convert(messages), params: params, enableThinking: thinking)) {
-        if (c.text.isNotEmpty || c.thinking.isNotEmpty) {
-          yield LlmChunk(text: c.text, thinking: c.thinking);
+      final input = guided ? withGuidedThinking(messages, budget) : messages;
+      final splitter = ThinkSplitter();
+      var thought = 0;
+      var runaway = false;
+      await for (final c in engine.create(
+        _convert(input),
+        params: params(thinking),
+        enableThinking: thinking && !guided,
+      )) {
+        final split = splitter.add(c.text);
+        final chunk = LlmChunk(text: split.text, thinking: c.thinking + split.thinking);
+        if (chunk.text.isNotEmpty || chunk.thinking.isNotEmpty) yield chunk;
+        if (guided) {
+          thought += split.thinking.length;
+          // Si no cierra el bloque no quedaría sitio para la narración.
+          if (splitter.inside && thought / 3.5 > budget * 1.25) {
+            runaway = true;
+            break;
+          }
         }
+      }
+      if (runaway) {
+        engine.cancelGeneration();
+        yield const LlmChunk(thinking: '…\n');
+        await for (final c in engine.create(_convert(messages), params: params(false), enableThinking: false)) {
+          if (c.text.isNotEmpty) yield LlmChunk(text: c.text);
+        }
+      } else {
+        final rest = splitter.close();
+        if (rest.text.isNotEmpty || rest.thinking.isNotEmpty) yield rest;
       }
     } finally {
       release();

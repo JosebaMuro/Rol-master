@@ -3,7 +3,9 @@ import 'package:director_de_rol/core/models.dart';
 
 /// Motor de IA falso para pruebas: devuelve respuestas guionizadas.
 class FakeLlm implements TextGenerator {
-  FakeLlm({this.replies = const [], this.jsonReplies = const [], this.embeddings = false});
+  FakeLlm({this.replies = const [], this.jsonReplies = const [], this.embeddings = false, this.sees = false});
+
+  final bool sees;
 
   final List<String> replies;
   final List<Map<String, dynamic>> jsonReplies;
@@ -18,6 +20,9 @@ class FakeLlm implements TextGenerator {
 
   @override
   bool get canEmbed => embeddings;
+
+  @override
+  bool get canSee => sees;
 
   @override
   Stream<LlmChunk> chat(List<LlmMessage> messages,
