@@ -55,6 +55,7 @@ class _DirectorAppState extends State<DirectorApp> {
         ChangeNotifierProvider.value(value: s.docs),
         ChangeNotifierProvider.value(value: s.speech),
         ChangeNotifierProvider.value(value: s.bundled),
+        ChangeNotifierProvider.value(value: s.images),
       ],
       child: MaterialApp(
         title: 'Director de Rol',

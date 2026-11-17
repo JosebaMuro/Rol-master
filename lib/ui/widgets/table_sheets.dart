@@ -5,6 +5,7 @@ import '../../core/db.dart';
 import '../../core/models.dart';
 import '../../game/world.dart';
 import '../theme.dart';
+import 'image_widgets.dart';
 
 /// Hoja inferior alta y desplazable, común a fichas y mundo.
 Future<void> _sheet(BuildContext context, Widget Function(BuildContext, ScrollController) builder) => showModalBottomSheet(
@@ -61,6 +62,7 @@ class _CharacterSheets extends StatefulWidget {
 
 class _CharacterSheetsState extends State<_CharacterSheets> {
   AppDatabase get db => widget.db;
+  Campaign? _campaign;
 
   void _save(CharacterState c) {
     db.saveCharState(c);
@@ -70,6 +72,7 @@ class _CharacterSheetsState extends State<_CharacterSheets> {
   @override
   Widget build(BuildContext context) {
     final chars = db.charStates(widget.campaignId);
+    _campaign = db.campaign(widget.campaignId);
     return ListView(
       controller: widget.scroll,
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
@@ -101,6 +104,11 @@ class _CharacterSheetsState extends State<_CharacterSheets> {
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if (_campaign != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: CharacterImages(campaign: _campaign!, name: c.name, description: c.notes),
+            ),
           Row(children: [
             Expanded(
               child: Text(

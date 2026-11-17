@@ -106,6 +106,58 @@ class AppSettings extends ChangeNotifier {
   String sceneBackground(String sceneId) => _s('fondo_$sceneId', '');
   void setSceneBackground(String sceneId, String storedPath) => _set('fondo_$sceneId', storedPath);
 
+  // ---- Imágenes de apoyo (retratos, cuerpos enteros y escenas)
+  /// Motor que genera las imágenes: '' (el que haya disponible), 'local'
+  /// (stable-diffusion.cpp en este equipo), 'openai' (servicio compatible
+  /// con la API de imágenes de OpenAI), 'a1111' (servidor Automatic1111 /
+  /// Forge, p. ej. en el PC de casa) o 'none' (sólo imágenes a mano).
+  String get imageEngine => _s('imageEngine', '');
+  set imageEngine(String v) => _set('imageEngine', v);
+
+  /// Estilo que se añade a todas las imágenes generadas.
+  String get imageStyle => _s('imageStyle', 'ilustración de fantasía, pintura digital detallada, luz dramática');
+  set imageStyle(String v) => _set('imageStyle', v);
+
+  /// Imágenes grandes (1024 px de lado largo en vez de 768): más lentas.
+  bool get imageLarge => _prefs.getBool('imageLarge') ?? false;
+  set imageLarge(bool v) => _set('imageLarge', v);
+
+  /// Generar sola la imagen de cada escena nueva durante la partida.
+  bool get imageAuto => _prefs.getBool('imageAuto') ?? true;
+  set imageAuto(bool v) => _set('imageAuto', v);
+
+  /// Modelo local: fichero único (SD 1.5, SDXL…) o modelo de difusión.
+  String get sdModel => _s('sdModel', '');
+  set sdModel(String v) => _set('sdModel', v);
+
+  /// VAE y codificador de texto (sólo los modelos que van en piezas).
+  String get sdVae => _s('sdVae', '');
+  set sdVae(String v) => _set('sdVae', v);
+  String get sdLlm => _s('sdLlm', '');
+  set sdLlm(String v) => _set('sdLlm', v);
+
+  int get sdSteps => _prefs.getInt('sdSteps') ?? 20;
+  set sdSteps(int v) => _set('sdSteps', v);
+  double get sdCfg => _prefs.getDouble('sdCfg') ?? 7.0;
+  set sdCfg(double v) => _set('sdCfg', v);
+
+  /// Ahorrar memoria de vídeo (más lento; para gráficas de 4-6 GB).
+  bool get sdLowVram => _prefs.getBool('sdLowVram') ?? true;
+  set sdLowVram(bool v) => _set('sdLowVram', v);
+
+  /// Ruta de sd-cli si no es el que viene con la app.
+  String get sdExe => _s('sdExe', '');
+  set sdExe(String v) => _set('sdExe', v);
+
+  /// Servicio externo: dirección, clave y modelo. La clave se queda en este
+  /// equipo (ajustes.json) y nunca viaja en un .rolpack.
+  String get imageApiUrl => _s('imageApiUrl', '');
+  set imageApiUrl(String v) => _set('imageApiUrl', v);
+  String get imageApiKey => _s('imageApiKey', '');
+  set imageApiKey(String v) => _set('imageApiKey', v);
+  String get imageApiModel => _s('imageApiModel', '');
+  set imageApiModel(String v) => _set('imageApiModel', v);
+
   // ---- Voces
   bool get voiceEnabled => _prefs.getBool('voiceEnabled') ?? true;
   set voiceEnabled(bool v) => _set('voiceEnabled', v);
