@@ -61,6 +61,10 @@ class AppSettings extends ChangeNotifier {
   String get chatModel => _s('chatModel', '');
   set chatModel(String v) => _set('chatModel', v);
 
+  /// Proyector de visión (mmproj) del modelo de chat; '' si no tiene.
+  String get chatProjector => _s('chatProjector', '');
+  set chatProjector(String v) => _set('chatProjector', v);
+
   String get embedModel => _s('embedModel', '');
   set embedModel(String v) => _set('embedModel', v);
 

@@ -185,6 +185,16 @@ class Director {
     return last.where((m) => m.role == MessageRole.gm).map((m) => m.content).join('\n\n');
   }
 
+  /// Imágenes enseñadas en el último turno (id del mensaje y rutas).
+  (int?, List<String>) _turnImages = (null, const []);
+
+  /// Texto del turno con la nota de las imágenes que lo acompañan.
+  static String withImageNote(String text, List<String> images) {
+    if (images.isEmpty) return text;
+    final names = images.map((i) => i.split(RegExp(r'[/\\]')).last).join(', ');
+    return '$text\n📎 (enseña ${images.length == 1 ? 'una imagen' : '${images.length} imágenes'} al director: $names)';
+  }
+
   /// Turno de los jugadores: guarda su acción y devuelve la narración en
   /// streaming.
   Stream<DirectorEvent> playerTurn({
@@ -193,16 +203,19 @@ class Director {
     required String speaker,
     required String text,
     required List<String> situations,
+    List<String> images = const [],
   }) async* {
     await _background;
     _sync(campaign);
+    final seen = llm.canSee ? images : const <String>[];
     final playerMsg = _save(ChatMessage(
       campaignId: campaign.id!,
       sessionId: session.id!,
       role: MessageRole.player,
       speaker: speaker,
-      content: text,
+      content: withImageNote(text, seen),
     ));
+    _turnImages = (playerMsg.id, seen);
     yield* _respond(campaign, session, situations, playerMsg);
   }
 
@@ -230,7 +243,13 @@ class Director {
     List<String> situations,
     ChatMessage playerMsg,
   ) async* {
-    final messages = await buildPrompt(campaign, situations, playerMsg.content);
+    // Las imágenes sólo viajan con el turno en que se enseñan; después queda
+    // la nota de texto en la conversación.
+    final images = _turnImages.$1 == playerMsg.id && llm.canSee ? _turnImages.$2 : const <String>[];
+    var messages = await buildPrompt(campaign, situations, playerMsg.content, reserve: images.length * 300);
+    if (images.isNotEmpty && messages.last.role == LlmRole.user) {
+      messages = [...messages.take(messages.length - 1), messages.last.withImages(images)];
+    }
     final text = StringBuffer();
     final thinking = StringBuffer();
     try {
@@ -426,7 +445,12 @@ class Director {
   }
 
   /// Construye la conversación que se envía al modelo.
-  Future<List<LlmMessage>> buildPrompt(Campaign c, List<String> situations, String playerText) async {
+  Future<List<LlmMessage>> buildPrompt(
+    Campaign c,
+    List<String> situations,
+    String playerText, {
+    int reserve = 0,
+  }) async {
     final recentForQuery = db.recentMessages(c.id!, limit: 3).map((m) => m.content).join('\n');
     final query = '$playerText\n$recentForQuery';
     final graphFacts = graph.contextFor(c.id!, query);
@@ -458,6 +482,7 @@ class Director {
         estimateTokens(system) -
         config.maxTokens -
         (config.thinking ? config.thinkingBudget : 0) -
+        reserve -
         256;
 
     final history = <LlmMessage>[];

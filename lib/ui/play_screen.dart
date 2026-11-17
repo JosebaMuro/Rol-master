@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
+
+import 'package:file_picker/file_picker.dart';
 
 import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
@@ -14,6 +17,7 @@ import '../game/dice.dart';
 import '../voice/speech_input.dart';
 import '../voice/voice_service.dart';
 import 'map_viewer.dart';
+import 'widgets/file_utils.dart';
 import 'widgets/music_bar.dart';
 import 'widgets/rich_message.dart';
 import 'widgets/scene_panel.dart';
@@ -35,6 +39,9 @@ class _PlayScreenState extends State<PlayScreen> {
   late Director director;
   late List<CampaignPlayer> players;
   final _input = TextEditingController();
+
+  /// Imagen que acompañará al próximo turno (sólo con modelos con visión).
+  String? _image;
   final _scroll = ScrollController();
   final _messages = <ChatMessage>[];
 
@@ -110,6 +117,7 @@ class _PlayScreenState extends State<PlayScreen> {
       return;
     }
     if (override == null) _input.clear();
+    final images = [if (_image != null && s.llm.canSee) _image!];
     await s.voices.stop();
     director.config = s.directorConfig;
     setState(() {
@@ -117,12 +125,36 @@ class _PlayScreenState extends State<PlayScreen> {
       _partial = '';
       _thinking = '';
       _pendingRolls = [];
+      _image = null;
       _messages.add(
-        ChatMessage(campaignId: campaign.id!, sessionId: session.id!, role: MessageRole.player, speaker: who, content: text),
+        ChatMessage(
+          campaignId: campaign.id!,
+          sessionId: session.id!,
+          role: MessageRole.player,
+          speaker: who,
+          content: Director.withImageNote(text, images),
+        ),
       );
     });
     _toBottom();
-    await _consume(director.playerTurn(campaign: campaign, session: session, speaker: who, text: text, situations: _situationNames));
+    await _consume(director.playerTurn(
+      campaign: campaign,
+      session: session,
+      speaker: who,
+      text: text,
+      situations: _situationNames,
+      images: images,
+    ));
+  }
+
+  /// Elige una imagen (mapa, ficha, foto de la mesa…) para enseñársela al
+  /// director en el próximo turno.
+  Future<void> _pickImage() async {
+    final f = await FilePicker.pickFile(type: FileType.image);
+    if (f == null) return;
+    final path = await localPathFor(f, s.dataRoot.tmp);
+    if (path == null || !mounted) return;
+    setState(() => _image = path);
   }
 
   Future<void> _regenerate() async {
@@ -608,10 +640,28 @@ class _PlayScreenState extends State<PlayScreen> {
                   ],
                 ),
               ),
+            if (_image != null)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: InputChip(
+                    avatar: ClipOval(child: Image.file(File(_image!), width: 24, height: 24, fit: BoxFit.cover)),
+                    label: const Text('Imagen para el director'),
+                    onDeleted: () => setState(() => _image = null),
+                  ),
+                ),
+              ),
             Row(
               children: [
                 IconButton(tooltip: 'Tirar dados', icon: const Icon(Icons.casino), onPressed: () => _rollDialog()),
                 _micButton(),
+                if (llm.canSee)
+                  IconButton(
+                    tooltip: 'Enseñar una imagen al director',
+                    icon: const Icon(Icons.image_outlined),
+                    onPressed: _generating ? null : _pickImage,
+                  ),
                 Expanded(
                   child: TextField(
                     controller: _input,
