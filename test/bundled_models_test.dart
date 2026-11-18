@@ -111,7 +111,7 @@ void main() {
     expect(await BundledModels(root, source: _FolderSource(p.join(tmp.path, 'vacio'))).installFromAssets(), isNull);
   });
 
-  test('todo el catálogo de voces y de Whisper va incluido en las dos plataformas', () {
+  test('todo el catálogo de voces y de Whisper va incluido en las tres plataformas', () {
     final tool = File(p.join('tool', 'incluir_modelos.py')).readAsStringSync();
     final todo = tool.substring(tool.indexOf('TODO = {'), tool.indexOf('PERFILES = '));
     List<String> ids(String key, String next) {
@@ -122,7 +122,7 @@ void main() {
 
     expect(ids('voces', 'reconocimiento'), [for (final v in voicePackCatalog) v.id]);
     expect(ids('reconocimiento', ''), [for (final m in speechModelCatalog) m.id]);
-    expect(tool, contains("PERFILES = {'windows': TODO, 'android': TODO}"));
+    expect(tool, contains("PERFILES = {'windows': TODO, 'android': TODO, 'linux': TODO}"));
   });
 
   test('con todos los Whisper incluidos se usa base si no se ha elegido otro', () {
