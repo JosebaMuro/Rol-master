@@ -179,6 +179,8 @@ jobs:
       - name: Dependencias (GTK, GStreamer para el audio, PulseAudio para grabar)
         run: |
           sudo apt-get update -qq
+          # la imagen del runner trae libunwind-14-dev, que choca con la libunwind-dev de GStreamer
+          sudo apt-get remove -y -qq libunwind-14-dev || true
           sudo apt-get install -y -qq clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libsecret-1-dev
       - uses: subosito/flutter-action@v2
