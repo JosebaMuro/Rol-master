@@ -5,6 +5,7 @@ Lo usa el workflow de GitHub Actions antes de compilar:
 
     python tool/incluir_modelos.py --perfil android --destino android/app/src/main/assets/incluidos
     python tool/incluir_modelos.py --perfil windows --destino build/windows/x64/runner/Release/incluidos
+    python tool/incluir_modelos.py --perfil linux --destino build/linux/x64/release/bundle/incluidos
 
 Deja en el destino:
     voces/<id>/...            paquetes Piper / Kokoro (sherpa-onnx)
@@ -45,7 +46,7 @@ TODO = {
         'sherpa-onnx-whisper-small',
     ],
 }
-PERFILES = {'windows': TODO, 'android': TODO}
+PERFILES = {'windows': TODO, 'android': TODO, 'linux': TODO}
 
 CARPETA_RELEASE = {'voces': 'tts-models', 'reconocimiento': 'asr-models'}
 
